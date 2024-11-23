@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-myapp-depl
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: mongo-myapp
+  template:
+    metadata:
+      labels:
+        app: mongo-myapp
+    spec:
+      containers:
+        - name: mongo-myapp
+          image: mongo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-myapp-srv
+spec:
+  type: ClusterIP
+  selector:
+    app: mongo-myapp
+  ports:
+    - name: db
+      protocol: TCP
+      port: 27017
+      targetPort: 27017

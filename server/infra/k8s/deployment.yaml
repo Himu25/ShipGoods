@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: myapp-backend
+  template:
+    metadata:
+      labels:
+        app: myapp-backend
+    spec:
+      containers:
+        - name: nodejs-container
+          image: myapp-backend:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: JWT_SECRET
+              value: "your_jwt_secret_key"
+            - name: MONGO_URI
+              value: "mongodb+srv://himanshu638684:hGm5C9VvoIq9soLd@cluster0.44wrne4.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+            - name: defaultPass
+              value: "123456789"
+            - name: WEATHER_API_KEY
+              value: "990e91efb1a3f8ae9a6a71c30f3bfaf6"
+            - name: ORS_API_KEY
+              value: "5b3ce3597851110001cf62482fc9341657a4400fa6fc3aff78e9da95"
+            - name: REDIS_URL
+              value: "redis://localhost:6379"
+            - name: STRIPE_SECRET_KEY
+              value: "sk_test_51PNDUWHG4k8ISmCRVaGS1Fd2jthGtCHifhiCEzWgp1LC2iRE4Nos0xqHPo0YFnN5Agd7Ed3UtFoCJO9e5hCpbBbT00sfVSsN1F"
+            - name: KAFKA_HOST
+              value: "localhost:9092"
