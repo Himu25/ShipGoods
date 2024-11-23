@@ -77,8 +77,7 @@ The **On-Demand Logistics Platform** is a scalable system designed to facilitate
    cd client
    npm install
    npm run dev
-
-   
+ 
 ## Demo Video  
 Watch the [demo video](https://drive.google.com/file/d/1o1PXLE25EkY2OdbgKqukt6VLeV8kNX3g/view?usp=sharing) showcasing the platform's key features and functionality.
 
