@@ -1,14 +1,23 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { Steps, Card, Button, Result, Modal, Spin } from "antd";
 import { useRouter } from "next/navigation";
 import { useSocket } from "@/context/SocketContext";
 import { useStripe, useElements, CardElement } from "@stripe/react-stripe-js";
-import DriverTracking from "./DriverTracking";
 import RatingComponent from "./RateBookings";
 import { ClockCircleOutlined } from "@ant-design/icons";
 import moment from "moment";
+
+const DriverTracking = dynamic(() => import("./DriverTracking"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-64 items-center justify-center text-slate-500">
+      Loading map…
+    </div>
+  ),
+});
 
 const { Step } = Steps;
 
@@ -26,6 +35,7 @@ const BookingPage = ({ booking }) => {
   const steps = [
     { title: "Pending" },
     { title: "Accepted" },
+    { title: "Arrived" },
     { title: "Collected" },
     { title: "Completed" },
     { title: "Cancelled" },
@@ -228,8 +238,8 @@ const BookingPage = ({ booking }) => {
         )}
       </div>
 
-      <div className="lg:w-2/3 bg-white rounded-lg">
-        {renderResult() || <DriverTracking booking={booking} />}
+      <div className="lg:w-2/3 bg-white rounded-lg overflow-hidden h-[calc(100vh-var(--nav-height))] lg:sticky lg:top-[var(--nav-height)]">
+        {renderResult() || <DriverTracking booking={currentBooking} />}
       </div>
 
       <Modal

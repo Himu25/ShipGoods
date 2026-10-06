@@ -1,237 +1,535 @@
 "use client";
-import React, { useEffect, useState } from "react";
+
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
-import {
-  AiOutlineCheckCircle,
-  AiOutlineCloseCircle,
-  AiOutlineClockCircle,
-} from "react-icons/ai";
-import { BiArrowToRight } from "react-icons/bi";
 import axios from "axios";
 import { toast } from "react-hot-toast";
-import { useRouter } from "next/navigation";
-import { Card, Button, Space, Typography, Spin, Row, Col, Tag } from "antd";
+import { useRouter, usePathname } from "next/navigation";
 
-const { Text, Title } = Typography;
+const SOCKET_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+const OFFER_SEC = 30;
+const OSRM = "https://router.project-osrm.org/route/v1/driving";
 
-const DriverConnection = ({ driverId }) => {
-  const [connected, setConnected] = useState(false);
-  const [bookings, setBookings] = useState([]);
-  const router = useRouter();
+function formatDuration(durationInSeconds = 0) {
+  const minutes = Math.max(1, Math.round(Number(durationInSeconds) / 60));
+  return `${minutes} min`;
+}
 
-  useEffect(() => {
-    const socket = io("http://localhost:3000");
+function formatPrice(price = 0) {
+  return `₹${Number(price).toFixed(0)}`;
+}
 
-    if (driverId) {
-      socket.emit("driverConnected", driverId);
-      console.log(`Driver with ID ${driverId} connected and registered.`);
-      setConnected(true);
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function bearingDegrees(lat1, lng1, lat2, lng2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const toDeg = (r) => (r * 180) / Math.PI;
+  const φ1 = toRad(lat1);
+  const φ2 = toRad(lat2);
+  const Δλ = toRad(lng2 - lng1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x =
+    Math.cos(φ1) * Math.sin(φ2) -
+    Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+/** Walk meters along an OSRM road path (same idea as the earlier auto-driver). */
+function advanceAlongRoad(path, pathIndex, lat, lng, metersPerTick) {
+  let remaining = metersPerTick;
+  let i = pathIndex;
+  let curLat = lat;
+  let curLng = lng;
+  let heading = 0;
+
+  while (remaining > 0 && i < path.length) {
+    const target = path[i];
+    const dist = haversineMeters(curLat, curLng, target.lat, target.lng);
+    heading = bearingDegrees(curLat, curLng, target.lat, target.lng);
+
+    if (dist <= remaining || dist < 0.5) {
+      remaining -= dist;
+      curLat = target.lat;
+      curLng = target.lng;
+      i += 1;
+      continue;
     }
 
-    socket.on("pickupRequested", (bookingData) => {
-      console.log("New booking request received:", bookingData);
-      setBookings((prevBookings) => [...prevBookings, bookingData]);
-    });
+    const ratio = remaining / dist;
+    curLat = curLat + (target.lat - curLat) * ratio;
+    curLng = curLng + (target.lng - curLng) * ratio;
+    remaining = 0;
+  }
 
-    return () => {
-      socket.disconnect();
-    };
-  }, [driverId]);
-
-  const acceptBooking = async (bookingDetails) => {
-    try {
-      const response = await axios.post(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/booking/accept`,
-        {
-          bookingId: bookingDetails._id,
-          driverId: driverId,
-        }
-      );
-
-      console.log("Booking accepted successfully:", response.data.booking);
-
-      const socket = io("http://localhost:3000");
-      socket.emit("acceptBooking", {
-        driverId,
-        bookingId: bookingDetails._id,
-        userId: bookingDetails.userId,
-      });
-
-      setBookings((prevBookings) =>
-        prevBookings.filter((booking) => booking._id !== bookingDetails._id)
-      );
-
-      toast.success("Booking accepted successfully!");
-      if (!bookingDetails.isScheduled) {
-        router.push(`/driver/map/${bookingDetails._id}`);
-      }
-    } catch (error) {
-      console.error("Error accepting the booking:", error);
-      toast.error(error.response?.data?.message || "Failed to accept booking.");
-    }
+  return {
+    lat: curLat,
+    lng: curLng,
+    pathIndex: i,
+    heading,
+    arrived: i >= path.length,
   };
+}
 
-  const rejectBooking = (bookingDetails) => {
-    const socket = io("http://localhost:3000");
-    socket.emit("bookingRejected", {
-      driverId,
-      bookingId: bookingDetails._id,
-    });
-    console.log(
-      `Booking ${bookingDetails._id} rejected by driver ${driverId}.`
-    );
-    setBookings((prevBookings) =>
-      prevBookings.filter((booking) => booking._id !== bookingDetails._id)
-    );
+async function fetchRoad(lat1, lng1, lat2, lng2) {
+  try {
+    const url = `${OSRM}/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.code !== "Ok") return null;
+    return data.routes[0].geometry.coordinates.map(([lng, lat]) => ({
+      lat,
+      lng,
+    }));
+  } catch {
+    return null;
+  }
+}
 
-    toast.error("Booking rejected.");
-  };
-
-  const formatDuration = (durationInSeconds) => {
-    const hours = Math.floor(durationInSeconds / 3600);
-    const minutes = Math.floor((durationInSeconds % 3600) / 60);
-    const seconds = Math.floor(durationInSeconds % 60);
-
-    return `${hours}h ${minutes}m ${seconds}s`;
-  };
-
-  const formatPriceInRupees = (price) => {
-    return `₹${price.toFixed(2)}`;
-  };
+/**
+ * Professional trip offer card (Uber-style): bottom sheet, fare, ETA,
+ * pickup/drop, countdown bar, Accept / dismiss — not a phone dialer.
+ */
+function TripOfferCard({
+  booking,
+  secondsLeft,
+  onAccept,
+  onReject,
+  accepting,
+}) {
+  const progress = Math.max(0, (secondsLeft / OFFER_SEC) * 100);
 
   return (
-    <div
-      style={{
-        padding: "24px",
-        backgroundColor: "#f0f2f5",
-        minHeight: "100vh",
-      }}
-    >
-      {connected ? (
-        <Row gutter={[16, 16]} justify="center">
-          {bookings.length > 0 ? (
-            bookings.map((booking, index) => (
-              <Col key={index} xs={24} sm={12} lg={8}>
-                <Card
-                  className="booking-card"
-                  hoverable
-                  style={{
-                    borderRadius: "8px",
-                    overflow: "hidden",
-                    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
-                    display: "flex",
-                    flexDirection: "column",
-                    justifyContent: "space-between",
-                    height: "100%",
-                  }}
-                >
-                  <div>
-                    <Row style={{ marginBottom: "16px", alignItems: "center" }}>
-                      <Title level={4} style={{ margin: 0 }}>
-                        {booking.userName}
-                      </Title>
-                      {booking.isScheduled && <Tag color="blue">Scheduled</Tag>}
-                    </Row>
-                    <Text type="secondary">Pickup:</Text>
-                    <p
-                      style={{
-                        margin: "8px 0",
-                        display: "flex",
-                        alignItems: "center",
-                      }}
-                    >
-                      {booking.srcText}
-                      <BiArrowToRight style={{ margin: "0 10px" }} />
-                      {booking.destnText}
-                    </p>
-                    <Row style={{ marginBottom: "8px" }}>
-                      <AiOutlineClockCircle style={{ marginRight: "8px" }} />
-                      <Text>{formatDuration(booking.duration)}</Text>
-                    </Row>
-                    <Row>
-                      <Text strong>Distance: {booking.distance} km</Text>
-                    </Row>
-                    <Row>
-                      <Text strong>
-                        Price: {formatPriceInRupees(booking.price)}
-                      </Text>
-                    </Row>
-                    {booking.isScheduled && (
-                      <Row style={{ marginTop: "8px" }}>
-                        <Text type="secondary">
-                          Scheduled Time:{" "}
-                          {new Date(booking.scheduledTime).toLocaleString()}
-                        </Text>
-                      </Row>
-                    )}
-                  </div>
-                  <Row
-                    justify="space-between"
-                    align="middle"
-                    style={{ marginTop: "16px" }}
-                  >
-                    <Space>
-                      <Button
-                        type="primary"
-                        shape="round"
-                        icon={<AiOutlineCheckCircle />}
-                        onClick={() => acceptBooking(booking)}
-                      >
-                        Accept
-                      </Button>
-                      <Button
-                        shape="round"
-                        danger
-                        icon={<AiOutlineCloseCircle />}
-                        onClick={() => rejectBooking(booking)}
-                      >
-                        Reject
-                      </Button>
-                    </Space>
-                  </Row>
-                </Card>
-              </Col>
-            ))
-          ) : (
-            <Col>
-              <div
-                style={{
-                  textAlign: "center",
-                  marginLeft: "auto",
-                  marginRight: "auto",
-                }}
-              >
-                <Spin size="large" />
-                <Text
-                  style={{ display: "block", marginTop: "16px" }}
-                  type="secondary"
-                >
-                  Waiting for new booking requests...
-                </Text>
-              </div>
-            </Col>
-          )}
-        </Row>
-      ) : (
+    <div className="sg-offer" role="dialog" aria-label="New trip offer">
+      <div className="sg-offer__scrim" />
+      <div className="sg-offer__sheet">
         <div
-          style={{
-            display: "flex",
-            textAlign: "center",
-            justifyContent: "center",
-            paddingTop: "20%",
-          }}
-        >
-          <Spin size="large" />
-          <Text
-            style={{ display: "block", marginTop: "16px" }}
-            type="secondary"
+          className="sg-offer__progress"
+          style={{ width: `${progress}%` }}
+          aria-hidden
+        />
+
+        <div className="sg-offer__top">
+          <button
+            type="button"
+            className="sg-offer__dismiss"
+            onClick={onReject}
+            disabled={accepting}
+            aria-label="Decline trip"
           >
-            Connecting...
-          </Text>
+            ✕
+          </button>
+          <div className="sg-offer__brand">
+            <span className="sg-offer__brand-mark">SG</span>
+            <div>
+              <p className="sg-offer__brand-title">ShipGoods</p>
+              <p className="sg-offer__brand-sub">New trip offer · {secondsLeft}s</p>
+            </div>
+          </div>
         </div>
+
+        <div className="sg-offer__fare">
+          <span className="sg-offer__fare-amount">
+            {formatPrice(booking?.price)}
+          </span>
+          <span className="sg-offer__fare-meta">
+            {Number(booking?.distance || 0).toFixed(1)} km ·{" "}
+            {formatDuration(booking?.duration)}
+          </span>
+        </div>
+
+        <div className="sg-offer__route">
+          <div className="sg-offer__leg">
+            <span className="sg-offer__dot sg-offer__dot--a" />
+            <div>
+              <p className="sg-offer__leg-label">Pickup</p>
+              <p className="sg-offer__leg-text">
+                {booking?.srcText || "Pickup location"}
+              </p>
+            </div>
+          </div>
+          <div className="sg-offer__rail" aria-hidden />
+          <div className="sg-offer__leg">
+            <span className="sg-offer__dot sg-offer__dot--b" />
+            <div>
+              <p className="sg-offer__leg-label">Drop-off</p>
+              <p className="sg-offer__leg-text">
+                {booking?.destnText || "Drop location"}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {booking?.userName && (
+          <p className="sg-offer__rider">
+            Rider <strong>{booking.userName}</strong>
+          </p>
+        )}
+
+        <button
+          type="button"
+          className="sg-offer__accept"
+          onClick={onAccept}
+          disabled={accepting}
+        >
+          {accepting ? "Accepting…" : "Accept trip"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const DriverDashboard = ({ driverId, token }) => {
+  const [online, setOnline] = useState(false);
+  const [incoming, setIncoming] = useState(null);
+  const [secondsLeft, setSecondsLeft] = useState(OFFER_SEC);
+  const [accepting, setAccepting] = useState(false);
+  const [enRoute, setEnRoute] = useState(false);
+  const socketRef = useRef(null);
+  const acceptLock = useRef(false);
+  const driveTimer = useRef(null);
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const goOnline = useCallback(async () => {
+    if (!token) {
+      toast.error("Missing auth token — please log in again");
+      return;
+    }
+    try {
+      if (!socketRef.current) {
+        const socket = io(SOCKET_URL, {
+          // websocket-only: a long-lived single connection, so it never
+          // needs load-balancer sticky sessions the way the polling
+          // fallback (a sequence of separate HTTP requests) would.
+          transports: ["websocket"],
+          reconnection: true,
+          reconnectionAttempts: Infinity,
+          reconnectionDelay: 800,
+          // Verified server-side (socket.io `io.use` middleware) — the
+          // server derives the real driverId from this token rather than
+          // trusting whatever id a client claims in driverConnected.
+          auth: { token },
+        });
+        socketRef.current = socket;
+
+        const register = () => {
+          socket.emit("driverConnected", driverId);
+          console.log("Driver registered", driverId, socket.id);
+        };
+
+        socket.on("connect", register);
+        socket.io.on("reconnect", register);
+
+        socket.on("disconnect", () => {
+          console.warn("Driver socket disconnected — will reconnect");
+        });
+
+        socket.on("connect_error", (err) => {
+          console.error("Driver socket error", err.message);
+        });
+
+        socket.on("pickupRequested", (bookingData) => {
+          console.log("Trip offer received", bookingData?._id);
+          setIncoming((current) => current || bookingData);
+          acceptLock.current = false;
+          setAccepting(false);
+        });
+
+        if (socket.connected) register();
+      } else {
+        if (!socketRef.current.connected) {
+          socketRef.current.connect();
+        } else {
+          socketRef.current.emit("driverConnected", driverId);
+        }
+      }
+    } catch (err) {
+      console.error("goOnline failed", err);
+      toast.error("Could not go online");
+      return;
+    }
+
+    setOnline(true);
+    toast.success("You’re online");
+  }, [driverId, token]);
+
+  // Keep Redis socket mapping fresh while online
+  useEffect(() => {
+    if (!online || !driverId) return;
+    const beat = setInterval(() => {
+      const s = socketRef.current;
+      if (s?.connected) {
+        s.emit("driverConnected", driverId);
+      } else {
+        s?.connect();
+      }
+    }, 4000);
+    return () => clearInterval(beat);
+  }, [online, driverId]);
+
+  // Auto-online on driver jobs + live-driver pages
+  useEffect(() => {
+    if (!driverId || online) return;
+    const onDriverSurface =
+      pathname?.includes("/live-driver") || pathname?.includes("/driver/jobs");
+    if (!onDriverSurface) return;
+    const t = setTimeout(() => {
+      goOnline();
+    }, 300);
+    return () => clearTimeout(t);
+  }, [pathname, driverId, online, goOnline]);
+
+  // Poll pending bookings so offers still show if socket delivery misses
+  useEffect(() => {
+    if (!online || enRoute || incoming) return;
+
+    const pull = async () => {
+      try {
+        const res = await axios.get(
+          `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/booking/pending`
+        );
+        const next = res.data?.bookings?.[0];
+        if (next?._id) {
+          setIncoming(next);
+          acceptLock.current = false;
+          setAccepting(false);
+        }
+      } catch (err) {
+        console.warn("Pending poll failed", err.message);
+      }
+    };
+
+    pull();
+    const id = setInterval(pull, 3000);
+    return () => clearInterval(id);
+  }, [online, enRoute, incoming]);
+
+  /** Drive along real roads to pickup (OSRM path + smooth ticks). */
+  const startDriveToPickup = useCallback(
+    async (booking) => {
+      const destLat = Number(booking?.src?.coordinates?.[0]);
+      const destLng = Number(booking?.src?.coordinates?.[1]);
+      if (!Number.isFinite(destLat) || !Number.isFinite(destLng)) return;
+
+      // Start a short drive away so movement is visible on the map
+      let lat = destLat + 0.0055;
+      let lng = destLng + 0.0045;
+
+      let road = await fetchRoad(lat, lng, destLat, destLng);
+      if (!road?.length) {
+        road = [
+          { lat, lng },
+          { lat: destLat, lng: destLng },
+        ];
+      } else if (haversineMeters(lat, lng, road[0].lat, road[0].lng) > 40) {
+        road = [{ lat, lng }, ...road];
+      }
+
+      setEnRoute(true);
+      let pathIndex = 0;
+      const TICK_MS = 400;
+      const SPEED_MPS = 8.5;
+      const metersPerTick = SPEED_MPS * (TICK_MS / 1000);
+
+      const publish = (la, ln, heading) => {
+        socketRef.current?.emit("driverLocationUpdate", {
+          driverId,
+          latitude: la,
+          longitude: ln,
+          heading,
+        });
+      };
+
+      const firstHeading = bearingDegrees(
+        road[0].lat,
+        road[0].lng,
+        road[Math.min(1, road.length - 1)].lat,
+        road[Math.min(1, road.length - 1)].lng
+      );
+      publish(road[0].lat, road[0].lng, firstHeading);
+      lat = road[0].lat;
+      lng = road[0].lng;
+
+      if (driveTimer.current) clearInterval(driveTimer.current);
+      driveTimer.current = setInterval(() => {
+        const next = advanceAlongRoad(
+          road,
+          pathIndex,
+          lat,
+          lng,
+          metersPerTick
+        );
+        pathIndex = next.pathIndex;
+        lat = next.lat;
+        lng = next.lng;
+
+        const remaining = haversineMeters(lat, lng, destLat, destLng);
+        publish(lat, lng, next.heading);
+
+        if (next.arrived || remaining <= 28) {
+          clearInterval(driveTimer.current);
+          publish(destLat, destLng, next.heading);
+          setEnRoute(false);
+          // Free driver again so they stay in nearby list for the next request
+          axios
+            .post(
+              `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/booking/free-driver`,
+              { driverId }
+            )
+            .catch(() => {});
+          toast.success("Arrived at pickup");
+        }
+      }, TICK_MS);
+    },
+    [driverId]
+  );
+
+  const acceptBooking = useCallback(
+    async (bookingDetails) => {
+      if (!bookingDetails || acceptLock.current) return;
+      acceptLock.current = true;
+      setAccepting(true);
+
+      const userId =
+        bookingDetails.userId?._id ||
+        bookingDetails.userId ||
+        bookingDetails.user?._id;
+
+      try {
+        await axios.post(
+          `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/booking/accept`,
+          {
+            bookingId: bookingDetails._id,
+            driverId,
+          }
+        );
+
+        socketRef.current?.emit("acceptBooking", {
+          driverId,
+          bookingId: bookingDetails._id,
+          userId: userId?.toString?.() || userId,
+        });
+
+        toast.success("Trip accepted");
+        setIncoming(null);
+        setAccepting(false);
+        acceptLock.current = false;
+
+        // Always simulate road movement so customer tracking works in this demo
+        await startDriveToPickup(bookingDetails);
+      } catch (error) {
+        console.error("Accept failed:", error);
+        toast.error(
+          error.response?.data?.message || "Failed to accept trip."
+        );
+        acceptLock.current = false;
+        setAccepting(false);
+        setIncoming(null);
+      }
+    },
+    [driverId, startDriveToPickup]
+  );
+
+  const rejectBooking = useCallback(
+    (bookingDetails) => {
+      socketRef.current?.emit("rejectBooking", {
+        driverId,
+        bookingId: bookingDetails?._id,
+        userId:
+          bookingDetails?.userId?._id ||
+          bookingDetails?.userId ||
+          bookingDetails?.user?._id,
+      });
+      setIncoming(null);
+      setSecondsLeft(OFFER_SEC);
+      acceptLock.current = false;
+      toast("Trip declined");
+    },
+    [driverId]
+  );
+
+  useEffect(() => {
+    if (!incoming) {
+      setSecondsLeft(OFFER_SEC);
+      return;
+    }
+    setSecondsLeft(OFFER_SEC);
+  }, [incoming]);
+
+  useEffect(() => {
+    if (!incoming || accepting) return;
+    if (secondsLeft <= 0) {
+      acceptBooking(incoming);
+      return;
+    }
+    const t = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [incoming, secondsLeft, accepting, acceptBooking]);
+
+  useEffect(() => {
+    return () => {
+      if (driveTimer.current) clearInterval(driveTimer.current);
+      socketRef.current?.disconnect();
+    };
+  }, []);
+
+  return (
+    <div className="sg-driver-home">
+      {!online ? (
+        <div className="sg-driver-home__gate">
+          <div className="sg-driver-home__card">
+            <p className="sg-driver-home__eyebrow">ShipGoods Driver</p>
+            <h1>Go online for trips</h1>
+            <p>
+              Trip offers appear as a request card with fare and route. You have{" "}
+              {OFFER_SEC} seconds to accept — or it accepts automatically.
+            </p>
+            <button
+              type="button"
+              className="sg-driver-home__go"
+              onClick={goOnline}
+            >
+              Go online
+            </button>
+            <p className="sg-driver-home__id">ID {driverId}</p>
+          </div>
+        </div>
+      ) : (
+        <div className="sg-driver-home__idle">
+          <div
+            className={`sg-driver-home__pulse ${enRoute ? "sg-driver-home__pulse--busy" : ""}`}
+          />
+          <h2>{enRoute ? "En route to pickup" : "Online"}</h2>
+          <p>
+            {enRoute
+              ? "Sharing live location with the customer."
+              : "Listening for nearby trip offers."}
+          </p>
+          <p className="sg-driver-home__id">ID {driverId}</p>
+        </div>
+      )}
+
+      {incoming && (
+        <TripOfferCard
+          booking={incoming}
+          secondsLeft={secondsLeft}
+          accepting={accepting}
+          onAccept={() => acceptBooking(incoming)}
+          onReject={() => rejectBooking(incoming)}
+        />
       )}
     </div>
   );
 };
 
-export default DriverConnection;
+export default DriverDashboard;

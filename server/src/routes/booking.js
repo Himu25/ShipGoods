@@ -2,8 +2,38 @@ import express from "express";
 import Booking from "../models/Booking.js"; // Import the Booking model
 import { authenticateToken } from "../middleware/index.js";
 import Driver from "../models/Driver.js";
+import getRedisClient from "../redisClient.js";
+import { cacheActiveTrip, clearActiveTrip } from "../services/voice/arrivalDetector.js";
+import { pickupLatLng } from "../services/voice/geo.js";
 
 const router = express.Router();
+
+/** Pending trip offers for online drivers (polling fallback). */
+router.get("/booking/pending", async (req, res) => {
+  try {
+    const bookings = await Booking.find({ status: "pending" })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .lean();
+    res.status(200).json({ bookings });
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching pending bookings.", error });
+  }
+});
+
+/** Mark driver available again (demo / after trip). */
+router.post("/booking/free-driver", async (req, res) => {
+  try {
+    const { driverId } = req.body;
+    if (!driverId) {
+      return res.status(400).json({ message: "driverId required" });
+    }
+    await Driver.findByIdAndUpdate(driverId, { isAvailable: true });
+    res.status(200).json({ message: "Driver is available." });
+  } catch (error) {
+    res.status(500).json({ message: "Error freeing driver.", error });
+  }
+});
 
 router.post("/booking/create", authenticateToken, async (req, res) => {
   const {
@@ -71,39 +101,50 @@ router.post("/booking/accept", async (req, res) => {
   const { bookingId, driverId } = req.body;
 
   try {
-    const booking = await Booking.findById(bookingId);
-
-    if (!booking) {
-      return res.status(404).json({ message: "Booking not found." });
-    }
-
-    if (booking.status === "accepted") {
-      return res.status(400).json({
-        message: "Booking has already been accepted by another driver.",
-      });
-    }
-
-    if (booking.status !== "pending") {
-      return res
-        .status(400)
-        .json({ message: "Booking is not available for acceptance." });
-    }
-
-    // Update the booking
-    booking.driverId = driverId;
-    booking.status = "accepted";
-
-    // Find and update the driver to set isAvailable to false
     const driver = await Driver.findById(driverId);
     if (!driver) {
       return res.status(404).json({ message: "Driver not found." });
     }
-    if (!booking.isScheduled) {
+
+    // Atomic claim: only one concurrent request can match status:"pending"
+    // and flip it to "accepted" for a given booking. A plain
+    // findById -> check -> save lets two near-simultaneous requests both
+    // read "pending" before either writes, so both pass the check — this
+    // is what let two accept calls both succeed for the same booking.
+    const updatedBooking = await Booking.findOneAndUpdate(
+      { _id: bookingId, status: "pending" },
+      { driverId, vehicleId: driver.vehicleId, status: "accepted" },
+      { new: true }
+    );
+
+    if (!updatedBooking) {
+      const existing = await Booking.findById(bookingId);
+      if (!existing) {
+        return res.status(404).json({ message: "Booking not found." });
+      }
+      return res.status(400).json({
+        message:
+          existing.status === "accepted"
+            ? "Booking has already been accepted by another driver."
+            : "Booking is not available for acceptance.",
+      });
+    }
+
+    if (!updatedBooking.isScheduled) {
       driver.isAvailable = false;
       await driver.save();
     }
 
-    const updatedBooking = await booking.save();
+    const pickup = pickupLatLng(updatedBooking.src);
+    if (pickup) {
+      await cacheActiveTrip(getRedisClient(), {
+        driverId,
+        userId: updatedBooking.userId,
+        bookingId: updatedBooking._id,
+        pickupLat: pickup.lat,
+        pickupLng: pickup.lng,
+      });
+    }
 
     res.status(200).json({
       message: "Booking accepted successfully.",
@@ -149,6 +190,7 @@ router.put("/booking/update-status/:bookingId", async (req, res) => {
   const validStatuses = [
     "pending",
     "accepted",
+    "arrived",
     "collected",
     "completed",
     "cancelled",
@@ -161,7 +203,9 @@ router.put("/booking/update-status/:bookingId", async (req, res) => {
   try {
     const updateFields = { status };
 
-    if (status === "collected") {
+    if (status === "arrived") {
+      updateFields.arrivedTime = new Date();
+    } else if (status === "collected") {
       updateFields.collectedTime = new Date();
     } else if (status === "completed") {
       updateFields.completedTime = new Date();
@@ -183,6 +227,7 @@ router.put("/booking/update-status/:bookingId", async (req, res) => {
         driver.isAvailable = true;
         await driver.save();
       }
+      await clearActiveTrip(getRedisClient(), updatedBooking.driverId);
     }
 
     res.status(200).json({

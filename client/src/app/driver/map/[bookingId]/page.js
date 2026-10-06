@@ -1,4 +1,4 @@
-import DriverMap from "@/components/driver/DriverMap";
+import DriverMapClient from "@/components/driver/DriverMapClient";
 import { cookies } from "next/headers";
 
 export default async function Page({ params }) {
@@ -24,11 +24,10 @@ export default async function Page({ params }) {
   let bookingDetails;
   try {
     bookingDetails = await fetchBookingDetails(token);
-    console.log(bookingDetails);
   } catch (error) {
     console.error(error);
     return <div>Error fetching booking details.</div>;
   }
 
-  return <DriverMap booking={bookingDetails.booking} />;
+  return <DriverMapClient booking={bookingDetails.booking} token={token} />;
 }

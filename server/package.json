@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "upload-rag": "node scripts/uploadRagCollection.js"
   },
   "keywords": [],
   "author": "",
@@ -26,6 +27,7 @@
     "nodemon": "^3.1.7",
     "redis": "^4.7.0",
     "socket.io": "^4.8.0",
-    "stripe": "^17.2.0"
+    "stripe": "^17.2.0",
+    "ws": "^8.21.3"
   }
 }
