@@ -16,6 +16,7 @@ const AuthForm = () => {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [signupSuccess, setSignupSuccess] = useState(false);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -66,10 +67,10 @@ const AuthForm = () => {
         } else {
           router.push("/", { scroll: false });
         }
-        alert(`Logged in as ${data.name} (${data.role})`);
       } else {
-        alert("Signup successful! Please log in.");
         setIsLogin(true);
+        setSignupSuccess(true);
+        setError("");
       }
     } catch (err) {
       setError(err.message);
@@ -92,90 +93,117 @@ const AuthForm = () => {
   };
 
   return (
-    <div className="max-w-md mx-auto bg-white shadow-lg rounded-lg p-8 mt-10">
-      <h2 className="text-2xl font-bold text-center mb-6">
-        {isLogin ? "Login" : "Sign Up"}
-      </h2>
-      {error && <p className="text-red-500 text-center">{error}</p>}
-      <form onSubmit={handleSubmit}>
-        {!isLogin && (
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700">
-              Name
+    <div className="flex min-h-[calc(100vh-var(--nav-height))] items-center justify-center px-4 py-10 bg-slate-50">
+      <div className="w-full max-w-md bg-white shadow-lg rounded-xl p-8 border border-slate-100">
+        <div className="mb-6 text-center">
+          <p className="text-sm font-medium text-blue-600 mb-1">ShipGoods</p>
+          <h2 className="text-2xl font-bold text-slate-900">
+            {isLogin ? "Welcome back" : "Create your account"}
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {isLogin
+              ? "Sign in to book or manage deliveries"
+              : "Join as a user or admin to get started"}
+          </p>
+        </div>
+
+        {error && (
+          <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-center text-sm text-red-600">
+            {error}
+          </p>
+        )}
+
+        {signupSuccess && isLogin && (
+          <p className="mb-4 rounded-lg bg-emerald-50 px-3 py-2 text-center text-sm text-emerald-700">
+            Account created. Please log in.
+          </p>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {!isLogin && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700">
+                Name
+              </label>
+              <input
+                type="text"
+                name="name"
+                value={formData.name}
+                onChange={handleChange}
+                required
+                className="mt-1 block w-full border border-slate-300 rounded-lg shadow-sm p-2.5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700">
+              Email
             </label>
             <input
-              type="text"
-              name="name"
-              value={formData.name}
+              type="email"
+              name="email"
+              value={formData.email}
               onChange={handleChange}
               required
-              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+              className="mt-1 block w-full border border-slate-300 rounded-lg shadow-sm p-2.5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             />
           </div>
-        )}
 
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700">
-            Email
-          </label>
-          <input
-            type="email"
-            name="email"
-            value={formData.email}
-            onChange={handleChange}
-            required
-            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-          />
-        </div>
-
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700">
-            Password
-          </label>
-          <input
-            type="password"
-            name="password"
-            value={formData.password}
-            onChange={handleChange}
-            required
-            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-          />
-        </div>
-
-        {!isLogin && (
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700">
-              Select Role
+          <div>
+            <label className="block text-sm font-medium text-slate-700">
+              Password
             </label>
-            <select
-              value={role}
-              onChange={handleRoleChange}
-              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
-            >
-              <option value="user">User</option>
-              <option value="admin">Admin</option>
-            </select>
+            <input
+              type="password"
+              name="password"
+              value={formData.password}
+              onChange={handleChange}
+              required
+              className="mt-1 block w-full border border-slate-300 rounded-lg shadow-sm p-2.5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            />
           </div>
-        )}
 
-        <button
-          type="submit"
-          className={`w-full ${
-            loading ? "bg-gray-400" : "bg-blue-600"
-          } text-white rounded-md p-2 hover:bg-blue-500 transition`}
-          disabled={loading}
-        >
-          {loading ? "Processing..." : isLogin ? "Login" : "Sign Up"}
-        </button>
-      </form>
+          {!isLogin && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700">
+                Select Role
+              </label>
+              <select
+                value={role}
+                onChange={handleRoleChange}
+                className="mt-1 block w-full border border-slate-300 rounded-lg shadow-sm p-2.5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              >
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+          )}
 
-      <div className="mt-4 text-center">
-        <button
-          onClick={() => setIsLogin((prev) => !prev)}
-          className="text-blue-600 hover:underline"
-        >
-          {isLogin ? "Create an account" : "Already have an account?"}
-        </button>
+          <button
+            type="submit"
+            className={`w-full rounded-lg p-2.5 font-semibold text-white transition ${
+              loading ? "bg-slate-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-500"
+            }`}
+            disabled={loading}
+          >
+            {loading ? "Processing..." : isLogin ? "Login" : "Sign Up"}
+          </button>
+        </form>
+
+        <div className="mt-5 text-center">
+          <button
+            type="button"
+            onClick={() => {
+              setIsLogin((prev) => !prev);
+              setError("");
+              setSignupSuccess(false);
+            }}
+            className="text-blue-600 hover:underline text-sm"
+          >
+            {isLogin ? "Create an account" : "Already have an account?"}
+          </button>
+        </div>
       </div>
     </div>
   );

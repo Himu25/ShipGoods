@@ -8,6 +8,9 @@ const bookingSchema = new mongoose.Schema(
     duration: {
       type: Number,
     },
+    arrivedTime: {
+      type: Date,
+    },
     collectedTime: {
       type: Date,
     },
@@ -73,7 +76,14 @@ const bookingSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "accepted", "collected", "completed", "cancelled"],
+      enum: [
+        "pending",
+        "accepted",
+        "arrived",
+        "collected",
+        "completed",
+        "cancelled",
+      ],
       default: "pending",
     },
     paymentId: {

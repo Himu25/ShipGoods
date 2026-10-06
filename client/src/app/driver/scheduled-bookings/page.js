@@ -68,8 +68,17 @@ export default function Page() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      {bookings.map((booking) => (
+    <div className="min-h-[calc(100vh-var(--nav-height))] bg-slate-50 p-4">
+      <h1 className="text-xl font-bold text-slate-900 mb-4">Scheduled Bookings</h1>
+      {!bookings?.length ? (
+        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
+          <p className="text-base font-semibold text-slate-800">No scheduled bookings</p>
+          <p className="mt-1 text-sm text-slate-500">
+            Scheduled jobs will show up here when users book for later.
+          </p>
+        </div>
+      ) : (
+        bookings.map((booking) => (
         <div key={booking._id} className="mb-2">
           <Card
             title={
@@ -125,7 +134,8 @@ export default function Page() {
             </div>
           </Card>
         </div>
-      ))}
+      ))
+      )}
     </div>
   );
 }

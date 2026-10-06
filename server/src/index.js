@@ -10,6 +10,8 @@ import driverRoutes from "./routes/driver.js";
 import adminRoutes from "./routes/admin.js";
 import priceRoutes from "./routes/price.js";
 import paymentRoute from "./routes/payment.js";
+import voiceRoutes from "./routes/voice.js";
+import voiceAgentRoutes from "./routes/voiceAgent.js";
 import { initializeSocket } from "./services/socketService.js"; // Socket logic in a separate module
 import getRedisClient from "./redisClient.js"; // Singleton Redis client
 import "./kafka/consumer.js";
@@ -34,6 +36,8 @@ app.use("/api", adminRoutes);
 app.use("/api", priceRoutes);
 app.use("/api", bookingRoutes);
 app.use("/api", paymentRoute);
+app.use("/api", voiceRoutes);
+app.use("/api", voiceAgentRoutes);
 
 const connectDB = async () => {
   try {

@@ -1,0 +1,19 @@
+node_modules/
+.env
+.env.*
+!.env.example
+
+# Next.js
+.next/
+out/
+
+# Local service data (seeded for dev, never meant to be versioned)
+.mongo-data/
+.mongo-logs/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS/editor
+.DS_Store
