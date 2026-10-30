@@ -1,6 +1,9 @@
 "use client";
 import React, { useState, useEffect } from "react";
-import ApexCharts from "react-apexcharts";
+import dynamic from "next/dynamic";
+
+// apexcharts touches `window` at import time, so it can only load in the browser.
+const ApexCharts = dynamic(() => import("react-apexcharts"), { ssr: false });
 import axios from "axios";
 import { useSelector } from "react-redux";
 

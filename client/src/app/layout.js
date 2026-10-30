@@ -1,6 +1,6 @@
 import "./globals.css";
 import Navbar from "@/components/Navbar";
-import Providers from "@/store/Provider";
+import Providers from "@/store/provider";
 import { Toaster } from "react-hot-toast";
 import localFont from "next/font/local";
 import { SocketProvider } from "@/context/SocketContext";

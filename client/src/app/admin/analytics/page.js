@@ -1,6 +1,9 @@
-import DriverPerformance from "@/components/analysis/analysis";
+import DriverPerformance from "@/components/analysis/Analysis";
 import VehicleDemandChart from "@/components/analysis/VehicleDemandChart";
 import { cookies } from "next/headers";
+
+// Per-admin data read with the request's cookie; never pre-render at build.
+export const dynamic = "force-dynamic";
 
 async function fetchData() {
   const cookieStore = cookies();
@@ -13,8 +16,8 @@ async function fetchData() {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
-        cache: "no-store",
       },
+      cache: "no-store",
     }
   );
 
@@ -30,7 +33,6 @@ export default async function Page() {
 
   try {
     data = await fetchData();
-    console.log("🚀 ~ Page ~ data:", data);
   } catch (error) {
     console.error("Error fetching data:", error);
     data = null;
