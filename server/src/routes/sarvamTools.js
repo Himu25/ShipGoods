@@ -12,6 +12,7 @@ import {
   getVehicleDetails,
 } from "../services/voiceAgent/tripService.js";
 import { answerPickupPolicy } from "../services/sarvam/pickupPolicy.js";
+import { placeTestPickupCall, testCallBlocker } from "../services/voice/testPickupCall.js";
 
 const router = express.Router();
 
@@ -148,6 +149,41 @@ router.post(
     const answer = answerPickupPolicy(question);
     recordToolCall(req.voiceCall, "pickup-policy", { question }, { answer });
     res.json({ answer });
+  })
+);
+
+const TEST_CALL_COOLDOWN_MS = 60000;
+let lastTestCallAt = 0;
+
+/**
+ * Test pickup call with live tools, placed by the deployed server so the
+ * booking and VoiceCall live in the same database the tools read. Only
+ * ever rings VOICE_TEST_NUMBER; guarded by the tool secret and a 1/min limit.
+ */
+router.post(
+  "/voice/test-call",
+  express.json(),
+  requireToolSecret,
+  wrap(async (req, res) => {
+    const blocker = testCallBlocker();
+    if (blocker) return res.status(503).json({ error: "not_configured", detail: blocker });
+
+    const waitMs = lastTestCallAt + TEST_CALL_COOLDOWN_MS - Date.now();
+    if (waitMs > 0) {
+      return res.status(429).json({ error: "too_soon", retryAfterSeconds: Math.ceil(waitMs / 1000) });
+    }
+    lastTestCallAt = Date.now();
+
+    const { booking, call } = await placeTestPickupCall({ io: getIO(), redis: getRedisClient() });
+    const placed = call?.channel === "sarvam" && !!call.sarvamAttemptId;
+    res.status(placed ? 200 : 502).json({
+      placed,
+      bookingId: String(booking._id),
+      callId: String(call?._id),
+      channel: call?.channel,
+      attemptId: call?.sarvamAttemptId || null,
+      ...(placed ? {} : { detail: "Sarvam rejected the call; see the server log." }),
+    });
   })
 );
 
