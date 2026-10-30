@@ -171,7 +171,13 @@ const initializeSocket = (server, redisClient, corsOrigin = "*") => {
           console.error("Pickup call check on accept failed:", error.message);
         });
 
-        io.to(`user:${userId}`).emit("bookingAccepted", { bookingId, driverId });
+        const driver = await Driver.findById(driverId).select("name demo").lean();
+        io.to(`user:${userId}`).emit("bookingAccepted", {
+          bookingId,
+          driverId,
+          driverName: driver?.name,
+          isDemoBot: driver?.demo === "bot",
+        });
         console.log(`Booking accepted by driver ${driverId}, notified user ${userId}`);
       } catch (error) {
         console.error("acceptBooking:", error.message);

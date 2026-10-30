@@ -74,10 +74,17 @@ const NearByCard = ({
 
     socket.emit("registerUser", id);
 
-    const handleBookingAccepted = ({ bookingId }) => {
+    const handleBookingAccepted = ({ bookingId, driverName, isDemoBot }) => {
       setWaitingForDriver(false);
       setRequesting(false);
-      message.success("A driver accepted your request!");
+      if (isDemoBot) {
+        message.success({
+          content: `🤖 ${driverName || "ShipGoods Bot"} accepted your pickup and started moving towards you!`,
+          duration: 5,
+        });
+      } else {
+        message.success(`${driverName || "A driver"} accepted your request!`);
+      }
       if (isScheduled) {
         router.push(`/user/bookings`);
       } else {
@@ -220,7 +227,7 @@ const NearByCard = ({
                       {driver.name.charAt(0)}
                     </Avatar>
                   }
-                  title={driver.name}
+                  title={driver.demo === "bot" ? `🤖 ${driver.name} (your demo bot)` : driver.name}
                   description={`${Number(driver.dist?.calculated ?? 0).toFixed(2)} km away`}
                 />
               </List.Item>

@@ -1,7 +1,10 @@
 import express from "express";
+import mongoose from "mongoose";
 import { body, validationResult } from "express-validator";
 import Driver from "../models/Driver.js";
 import { authenticateToken } from "../middleware/index.js";
+import getRedisClient from "../redisClient.js";
+import { ensureDemoFleet } from "../services/demo/demoFleet.js";
 
 const router = express.Router();
 
@@ -29,6 +32,17 @@ router.post(
     const { startLocation, vehicleType } = req.body;
 
     try {
+      if (req.user.role === "user") {
+        // Showcase mode only: top the area up to 5 drivers + this user's bot.
+        await ensureDemoFleet({
+          redis: getRedisClient(),
+          userId: req.user.id,
+          latitude: Number(startLocation.latitude),
+          longitude: Number(startLocation.longitude),
+          vehicleType,
+        }).catch((err) => console.error("Demo fleet error:", err.message));
+      }
+
       const drivers = await Driver.aggregate([
         {
           $geoNear: {
@@ -39,6 +53,13 @@ router.post(
             distanceField: "dist.calculated",
             maxDistance: 100000, // Set maximum distance to 100 km (100,000 meters)
             spherical: true,
+            // A customer's demo bot is only ever offered to that customer.
+            query: {
+              $or: [
+                { demo: { $ne: "bot" } },
+                { demoOwnerId: new mongoose.Types.ObjectId(String(req.user.id)) },
+              ],
+            },
           },
         },
         {
@@ -65,6 +86,7 @@ router.post(
             isAvailable: 1,
             currentLocation: 1,
             vehicleDetails: 1,
+            demo: 1,
             "dist.calculated": {
               $round: [{ $divide: ["$dist.calculated", 1000] }, 2], // Distance in km
             },

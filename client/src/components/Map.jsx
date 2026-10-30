@@ -463,7 +463,7 @@ const LeafletMap = () => {
                     className="flex items-center justify-between gap-2 text-sm"
                   >
                     <span className="font-medium text-slate-700 truncate">
-                      {driver.name}
+                      {driver.demo === "bot" ? `🤖 ${driver.name}` : driver.name}
                     </span>
                     <span className="shrink-0 text-xs text-slate-500">
                       {Number(driver.dist?.calculated ?? 0).toFixed(2)} km

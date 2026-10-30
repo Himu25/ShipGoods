@@ -30,6 +30,10 @@ services:
         sync: false
       - key: VOICE_CALLS_ENABLED
         value: "false"
+      # Showcase: 5 nearby drivers per area + a bot that accepts each
+      # customer's booking and drives to the pickup.
+      - key: DEMO_MODE
+        value: "true"
 
   # Next.js frontend. NEXT_PUBLIC_* values are baked in at build time, so
   # set them before the first deploy (and redeploy after changing them).

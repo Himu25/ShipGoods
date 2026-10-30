@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { Steps, Card, Button, Result, Modal, Spin } from "antd";
+import { Steps, Card, Button, Result, Modal, Spin, Tag, Alert } from "antd";
 import { useRouter } from "next/navigation";
 import { useSocket } from "@/context/SocketContext";
 import { useStripe, useElements, CardElement } from "@stripe/react-stripe-js";
@@ -234,11 +234,20 @@ const BookingPage = ({ booking }) => {
         {currentBooking.driverId && (
           <Card title="Driver Details" bordered={false}>
             <p>
-              <strong>Name:</strong> {currentBooking.driverId.name}
+              <strong>Name:</strong> {currentBooking.driverId.name}{" "}
+              {currentBooking.driverId.demo === "bot" && <Tag color="purple">🤖 Demo bot</Tag>}
             </p>
             <p>
               <strong>License:</strong> {currentBooking.driverId.licenseNumber}
             </p>
+            {currentBooking.driverId.demo === "bot" && (
+              <Alert
+                type="info"
+                showIcon
+                message="Showcase driver"
+                description="This bot accepted your pickup automatically and is driving the road route shown on the map. Its location reaches you live over the same socket channel a real driver uses."
+              />
+            )}
           </Card>
         )}
       </div>

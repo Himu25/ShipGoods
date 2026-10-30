@@ -11,6 +11,7 @@ import {
 import getRedisClient from "../redisClient.js";
 import { cacheActiveTrip, clearActiveTrip } from "../services/voice/arrivalDetector.js";
 import { pickupLatLng } from "../services/voice/geo.js";
+import { scheduleBotForBooking } from "../services/demo/botDriver.js";
 
 const router = express.Router();
 
@@ -117,6 +118,10 @@ router.post(
         message: "Booking added successfully.",
         booking: savedBooking,
       });
+
+      scheduleBotForBooking(savedBooking).catch((err) =>
+        console.error("Demo bot scheduling failed:", err.message)
+      );
     } catch (error) {
       console.error("Create booking error:", error.message);
       const status = error.name === "ValidationError" ? 400 : 500;

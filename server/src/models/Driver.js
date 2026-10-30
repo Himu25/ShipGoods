@@ -34,6 +34,18 @@ const driverSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "Vehicle",
   },
+  // Showcase mode only (DEMO_MODE=true): "filler" = stationary driver
+  // added so a new area always has nearby drivers; "bot" = one per
+  // customer, auto-accepts their bookings and drives to the pickup.
+  demo: {
+    type: String,
+    enum: ["filler", "bot"],
+  },
+  demoOwnerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    index: { sparse: true },
+  },
 });
 
 driverSchema.index({ currentLocation: "2dsphere" });
