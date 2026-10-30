@@ -125,7 +125,7 @@ function advanceAlongRoad(path, pathIndex, lat, lng, metersPerTick) {
 
 function publishLocation(socket, lat, lng, heading = 0) {
   // The server's driverLocationUpdate handler owns persistence now
-  // (validated Redis cache + Mongo via Kafka) — this script just emits,
+  // (validated Redis cache + throttled Mongo write) — this script just emits,
   // exactly like the real driver app would.
   socket.emit("driverLocationUpdate", { latitude: lat, longitude: lng, heading });
 }

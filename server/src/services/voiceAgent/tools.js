@@ -6,6 +6,7 @@ import {
   getDriverLocation,
   getDestinationETA,
   findCarLandmark,
+  shareUserLocationWithDriver,
 } from "./tripService.js";
 import { FORBIDDEN_HI } from "./guardrails.js";
 
@@ -29,7 +30,7 @@ export const AGENT_TOOLS = [
   },
   {
     name: "getDriverLocation",
-    description: "Get how far (meters) and in what direction the driver currently is from the relevant point (pickup, or destination if goods are already collected), and how fresh that location is.",
+    description: "Get how far (meters) and in what direction the driver currently is from the relevant point (pickup, or destination if goods are already collected), how fresh that location is, and `movement` ('approaching' | 'moving_away' | 'stationary' | null) compared to the last time you checked in this call.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -40,8 +41,37 @@ export const AGENT_TOOLS = [
   {
     name: "findCarLandmark",
     description:
-      "Call this when the user says they can't find/see the car (e.g. 'car find nahi kar pa raha', 'yeh nahi dikh raha'). Returns ONE nearby landmark near the car's live location per call (max 3 attempts total) — call it again each time the user says the previous landmark didn't help. The result may include `direction` (which cardinal direction the car is from the user, e.g. 'uttar') and `movement` ('closer' | 'away' | null vs the user's position on the previous attempt) — lead your reply with this directional guidance (e.g. tell them to turn around if movement is 'away'), and mention the landmark as secondary confirmation, not the headline. If `tooFar` is true, relay that message verbatim and do not suggest a landmark yet. After max attempts it returns exhausted:true with a fixed message to relay verbatim — the driver has also been notified to call the customer directly at that point.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
+      "Call this when the user says they can't find/see the car (e.g. 'car find nahi kar pa raha', 'yeh nahi dikh raha'). Returns ONE nearby landmark near the car's live location per call (max 3 attempts total) — call it again each time the user says the previous landmark didn't help. Pass `userDescription` whenever the user has described what they can see around them (e.g. 'ek medical store dikh raha hai') — the tool will try to match it against real nearby places instead of guessing. Pass `forceEscalate: true` instead of a normal call if the user sounds unsafe/scared — this skips straight to notifying the driver. The result may include `direction` (cardinal direction of the car from the user), `movement` ('closer' | 'away' | null vs the user's position on the previous attempt), and `matchedFromDescription` (true if the returned landmark matches what the user said they saw) — lead your reply with direction/movement, and mention the landmark as secondary confirmation. If `tooFar` is true, relay that message verbatim and do not suggest a landmark yet. After max attempts (or on forceEscalate) it returns exhausted:true with a fixed message to relay verbatim — the driver has also been notified to call the customer directly at that point.",
+    parameters: {
+      type: "object",
+      properties: {
+        userDescription: {
+          type: "string",
+          description: "What the user said they can see around them right now, in their own words (optional).",
+        },
+        forceEscalate: {
+          type: "boolean",
+          description: "Set true only if the user sounds unsafe/scared and needs the driver called immediately instead of another landmark attempt.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "shareUserLocationWithDriver",
+    description:
+      "Call this when the user tells you WHERE THEY are standing (e.g. 'main HDFC Bank ke saamne khada hoon') rather than asking where the car is. Relays their description straight to the driver's app so the driver can find them, instead of running the car-finder flow.",
+    parameters: {
+      type: "object",
+      properties: {
+        description: {
+          type: "string",
+          description: "The user's own description of where they're standing, verbatim or lightly cleaned up.",
+        },
+      },
+      required: ["description"],
+      additionalProperties: false,
+    },
   },
 ];
 
@@ -50,7 +80,7 @@ const ALLOWED = new Set(AGENT_TOOLS.map((t) => t.name));
 /** Every call re-verifies booking ownership before touching any data —
  * this is "prevent access to another user's booking" as code, not just
  * a prompt instruction. */
-export async function executeAgentTool(name, _args, ctx) {
+export async function executeAgentTool(name, args, ctx) {
   if (!ALLOWED.has(name)) {
     return { ok: false, result: { error: "unknown_tool" } };
   }
@@ -77,7 +107,17 @@ export async function executeAgentTool(name, _args, ctx) {
     case "findCarLandmark":
       return {
         ok: true,
-        result: await findCarLandmark(booking, ctx.redis, ctx.callId, ctx.io, ctx.userLat, ctx.userLng),
+        result: await findCarLandmark(booking, ctx.redis, ctx.callId, ctx.io, {
+          userLat: ctx.userLat,
+          userLng: ctx.userLng,
+          userDescription: args?.userDescription,
+          forceEscalate: Boolean(args?.forceEscalate),
+        }),
+      };
+    case "shareUserLocationWithDriver":
+      return {
+        ok: true,
+        result: shareUserLocationWithDriver(booking, ctx.io, args?.description),
       };
     default:
       return { ok: false, result: { error: "unknown_tool" } };

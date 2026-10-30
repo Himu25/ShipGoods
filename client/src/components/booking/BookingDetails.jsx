@@ -9,6 +9,7 @@ import { useStripe, useElements, CardElement } from "@stripe/react-stripe-js";
 import RatingComponent from "./RateBookings";
 import { ClockCircleOutlined } from "@ant-design/icons";
 import moment from "moment";
+import Cookies from "js-cookie";
 
 const DriverTracking = dynamic(() => import("./DriverTracking"), {
   ssr: false,
@@ -86,11 +87,12 @@ const BookingPage = ({ booking }) => {
       `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/create-payment-intent`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: currentBooking.price * 100,
-          currency: "INR",
-        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Cookies.get("token")}`,
+        },
+        // The server charges the booking's stored price.
+        body: JSON.stringify({ bookingId: currentBooking._id }),
       }
     );
 
@@ -115,7 +117,10 @@ const BookingPage = ({ booking }) => {
         `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/booking/${currentBooking._id}/payment`,
         {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Cookies.get("token")}`,
+          },
           body: JSON.stringify({ paymentId: result.paymentIntent.id }),
         }
       );

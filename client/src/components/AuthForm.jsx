@@ -12,6 +12,7 @@ const AuthForm = () => {
   const [formData, setFormData] = useState({
     name: "",
     email: "",
+    phone: "",
     password: "",
   });
   const [loading, setLoading] = useState(false);
@@ -41,6 +42,7 @@ const AuthForm = () => {
         name: formData.name,
         email: formData.email,
         password: formData.password,
+        phone: !isLogin && formData.phone ? formData.phone : undefined,
         role: !isLogin ? role : undefined,
       };
 
@@ -149,6 +151,23 @@ const AuthForm = () => {
               className="mt-1 block w-full border border-slate-300 rounded-lg shadow-sm p-2.5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             />
           </div>
+
+          {!isLogin && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700">
+                Phone (for pickup calls)
+              </label>
+              <input
+                type="tel"
+                name="phone"
+                placeholder="+91XXXXXXXXXX"
+                value={formData.phone}
+                onChange={handleChange}
+                pattern="\+?[0-9]{10,13}"
+                className="mt-1 block w-full border border-slate-300 rounded-lg shadow-sm p-2.5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-slate-700">

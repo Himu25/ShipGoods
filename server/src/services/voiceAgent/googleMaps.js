@@ -25,6 +25,7 @@ export async function fetchGoogleTrafficRoute(originLat, originLng, destLat, des
   try {
     const res = await fetch(ROUTES_URL, {
       method: "POST",
+      signal: AbortSignal.timeout(8000),
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
@@ -103,6 +104,7 @@ export async function fetchNearbyLandmarks(lat, lng, maxResults = 8) {
   try {
     const res = await fetch(PLACES_NEARBY_URL, {
       method: "POST",
+      signal: AbortSignal.timeout(8000),
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,

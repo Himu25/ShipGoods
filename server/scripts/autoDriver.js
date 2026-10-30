@@ -157,7 +157,7 @@ async function loginAsDriver(driverId) {
   return data.token;
 }
 
-async function acceptBooking(booking, driverId) {
+async function acceptBooking(booking, driverId, token) {
   const bookingId = booking._id || booking.id;
   const userId = booking.userId?._id || booking.userId;
 
@@ -165,10 +165,11 @@ async function acceptBooking(booking, driverId) {
     `\n🚕 Accepting booking ${bookingId} as driver ${driverId} for user ${userId}`
   );
 
+  // The server takes the driver from the token; driverId is for logs only.
   const res = await fetch(`${API}/api/booking/accept`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ bookingId, driverId }),
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ bookingId }),
   });
 
   const data = await res.json().catch(() => ({}));
@@ -322,8 +323,10 @@ async function main() {
     return candidates[0] || ordered[0];
   };
 
+  const tokens = new Map();
   for (const driver of drivers) {
     const token = await loginAsDriver(driver._id.toString());
+    tokens.set(driver._id.toString(), token);
     const socket = io(SOCKET_URL, {
       transports: ["websocket"],
       reconnection: true,
@@ -365,7 +368,8 @@ async function main() {
           await Driver.findByIdAndUpdate(chosen._id, { isAvailable: true });
           const result = await acceptBooking(
             bookingData,
-            chosen._id.toString()
+            chosen._id.toString(),
+            tokens.get(chosen._id.toString())
           );
           if (!result) {
             busy = false;

@@ -1,15 +1,16 @@
 {
   "name": "server",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "upload-rag": "node scripts/uploadRagCollection.js"
+    "dev": "nodemon src/index.js",
+    "test-call": "node scripts/testCall.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "ShipGoods API: bookings, live driver tracking (Socket.IO + Redis), Sarvam pickup calls",
   "type": "module",
   "dependencies": {
     "@socket.io/redis-adapter": "^8.3.0",
@@ -19,15 +20,16 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
     "express-validator": "^7.2.0",
-    "http": "^0.0.1-security",
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.2",
-    "kafka-node": "^5.0.0",
     "mongoose": "^8.7.1",
-    "nodemon": "^3.1.7",
-    "redis": "^4.7.0",
     "socket.io": "^4.8.0",
-    "stripe": "^17.2.0",
-    "ws": "^8.21.3"
+    "stripe": "^17.2.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

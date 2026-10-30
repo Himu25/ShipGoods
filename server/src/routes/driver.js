@@ -1,11 +1,15 @@
 import express from "express";
 import { body, validationResult } from "express-validator";
 import Driver from "../models/Driver.js";
+import { authenticateToken } from "../middleware/index.js";
 
 const router = express.Router();
 
+// Driver positions here come from the throttled Mongo write in
+// socketService.js, so they can lag the live Redis position by ~10 s.
 router.post(
   "/nearby-drivers",
+  authenticateToken,
   [
     body("startLocation.latitude")
       .isFloat({ min: -90, max: 90 })
@@ -57,7 +61,6 @@ router.post(
         {
           $project: {
             _id: 1,
-            licenseNumber: 1,
             name: 1,
             isAvailable: 1,
             currentLocation: 1,
@@ -81,56 +84,6 @@ router.post(
       return res
         .status(500)
         .json({ message: "An error occurred while fetching nearby drivers." });
-    }
-  }
-);
-
-router.put(
-  "/drivers/:id/coordinates",
-  [
-    body("coordinates")
-      .isArray({ min: 2, max: 2 })
-      .withMessage(
-        "Coordinates must be an array with two elements: [longitude, latitude]."
-      ),
-    body("coordinates.*")
-      .isFloat()
-      .withMessage("Coordinates must be valid numbers."),
-  ],
-  async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ message: errors.array()[0].msg });
-    }
-
-    const { id } = req.params;
-    const { coordinates } = req.body;
-
-    try {
-      const updatedDriver = await Driver.findByIdAndUpdate(
-        id,
-        {
-          currentLocation: {
-            type: "Point",
-            coordinates: coordinates,
-          },
-        },
-        { new: true, runValidators: true }
-      );
-
-      if (!updatedDriver) {
-        return res.status(404).json({ message: "Driver not found" });
-      }
-
-      return res.status(200).json({
-        message: "Driver's coordinates updated successfully",
-        driver: updatedDriver,
-      });
-    } catch (error) {
-      console.error(error);
-      return res.status(500).json({
-        message: "An error occurred while updating the driver's coordinates.",
-      });
     }
   }
 );

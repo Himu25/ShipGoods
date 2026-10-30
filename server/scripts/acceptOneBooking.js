@@ -28,14 +28,15 @@ if (!DRIVER_ID) {
   process.exit(1);
 }
 
-async function acceptBooking(booking, driverId) {
+async function acceptBooking(booking, driverId, token) {
   const bookingId = booking._id || booking.id;
   const userId = booking.userId?._id || booking.userId;
 
+  // The server takes the driver from the token; driverId is for logs only.
   const res = await fetch(`${API}/api/booking/accept`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ bookingId, driverId }),
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ bookingId }),
   });
 
   const data = await res.json().catch(() => ({}));
@@ -101,7 +102,7 @@ async function main() {
 
     console.log(`\n📩 Pickup requested: ${bookingData?.srcText} → ${bookingData?.destnText}`);
 
-    const result = await acceptBooking(bookingData, DRIVER_ID);
+    const result = await acceptBooking(bookingData, DRIVER_ID, token);
     if (!result) {
       process.exit(1);
     }

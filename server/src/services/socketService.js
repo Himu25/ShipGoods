@@ -1,17 +1,16 @@
 import { Server as SocketServer } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 import Driver from "../models/Driver.js";
 import Booking from "../models/Booking.js";
 import User from "../models/User.js";
-import { sendDriverLocationToKafka } from "../kafka/producer.js";
 import {
-  cacheActiveTrip,
+  checkPickupCallOnAccept,
   maybeTriggerArrivalCall,
   markCallDeclined,
   markCallMissed,
 } from "./voice/arrivalDetector.js";
-import { pickupLatLng } from "./voice/geo.js";
 
 let io;
 
@@ -20,6 +19,7 @@ export const getIO = () => io;
 const LOCATION_TTL_SEC = 120; // no push in 2 min -> treat the driver as gone dark
 const MAX_JUMP_METERS = 5000; // implausible for one tick
 const RECENT_WINDOW_MS = 10000; // only enforce the jump check vs a recent point
+const MONGO_PERSIST_INTERVAL_SEC = 10; // live position lives in Redis; Mongo only needs it for $geoNear
 
 function haversineMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000;
@@ -43,10 +43,47 @@ function isValidCoordinate(latitude, longitude) {
   );
 }
 
-const initializeSocket = (server, redisClient) => {
+/**
+ * Writes the driver's position to Mongo at most once per
+ * MONGO_PERSIST_INTERVAL_SEC. Mongo backs the nearby-driver $geoNear query
+ * and the stale fallback; live tracking reads the Redis cache instead. The
+ * throttle key is in Redis so it holds across instances.
+ */
+async function persistDriverLocation(redisClient, driverId, latitude, longitude) {
+  const acquired = await redisClient.set(
+    `driver:${driverId}:persistedAt`,
+    Date.now(),
+    "EX",
+    MONGO_PERSIST_INTERVAL_SEC,
+    "NX"
+  );
+  if (!acquired) return;
+  await Driver.findByIdAndUpdate(driverId, {
+    currentLocation: { type: "Point", coordinates: [longitude, latitude] },
+  });
+}
+
+/** Rooms only the server joins sockets to; a client can't name them. */
+async function canTrackDriver(socket, redisClient, driverId) {
+  if (!driverId) return false;
+  if (socket.data.role === "admin") return true;
+  if (socket.data.role === "driver") return socket.data.driverId === String(driverId);
+  const riderId = await redisClient.get(`driverAssignedToUser:${driverId}`);
+  return riderId === socket.data.userId;
+}
+
+/** The booking, if it is assigned to this driver socket. */
+async function loadDriverBooking(socket, bookingId) {
+  if (socket.data.role !== "driver" || !mongoose.isValidObjectId(bookingId)) return null;
+  return Booking.findOne({ _id: bookingId, driverId: socket.data.driverId })
+    .select("userId status src")
+    .lean();
+}
+
+const initializeSocket = (server, redisClient, corsOrigin = "*") => {
   io = new SocketServer(server, {
     cors: {
-      origin: "*",
+      origin: corsOrigin,
       methods: ["GET", "POST"],
     },
     destroyUpgrade: false,
@@ -110,7 +147,8 @@ const initializeSocket = (server, redisClient) => {
       );
     });
 
-    socket.on("requestPickup", async ({ driverIds, bookingData }) => {
+    socket.on("requestPickup", async ({ driverIds, bookingData } = {}) => {
+      if (socket.data.role !== "user") return;
       const ids = (driverIds || []).map((id) => id?.toString?.() || id);
       for (const driverId of ids) {
         // Room-based delivery via the adapter reaches the driver's socket
@@ -119,77 +157,64 @@ const initializeSocket = (server, redisClient) => {
       }
     });
 
-    socket.on("acceptBooking", async (bookingDetails) => {
-      const { userId, bookingId } = bookingDetails;
-
-      // A driver socket can only announce ITS OWN acceptance — stops a
-      // spoofed client from notifying a rider on a different driver's
-      // behalf.
-      if (
-        socket.data.role === "driver" &&
-        bookingDetails.driverId !== socket.data.driverId
-      ) {
-        return;
-      }
-      const driverId =
-        socket.data.role === "driver"
-          ? socket.data.driverId
-          : bookingDetails.driverId;
-
-      redisClient.set(`driverAssignedToUser:${driverId}`, userId);
+    // The REST accept (/booking/accept) is the source of truth and already
+    // set up the Redis trip state; this event only tells the rider.
+    socket.on("acceptBooking", async ({ bookingId } = {}) => {
       try {
-        const booking = await Booking.findById(bookingId);
-        const pickup = pickupLatLng(booking?.src);
-        if (pickup && userId && driverId && bookingId) {
-          await cacheActiveTrip(redisClient, {
-            driverId,
-            userId,
-            bookingId,
-            pickupLat: pickup.lat,
-            pickupLng: pickup.lng,
-          });
-        }
-      } catch (error) {
-        console.error("Error caching active trip:", error.message);
-      }
+        const booking = await loadDriverBooking(socket, bookingId);
+        if (!booking || booking.status !== "accepted") return;
+        const userId = String(booking.userId);
+        const driverId = socket.data.driverId;
 
-      io.to(`user:${userId}`).emit("bookingAccepted", { bookingId, driverId });
-      console.log(
-        `Booking accepted by driver ${driverId}, notified user ${userId}`
-      );
+        // Already within the call window at accept time -> call now.
+        checkPickupCallOnAccept({ io, redis: redisClient, driverId }).catch((error) => {
+          console.error("Pickup call check on accept failed:", error.message);
+        });
+
+        io.to(`user:${userId}`).emit("bookingAccepted", { bookingId, driverId });
+        console.log(`Booking accepted by driver ${driverId}, notified user ${userId}`);
+      } catch (error) {
+        console.error("acceptBooking:", error.message);
+      }
     });
 
-    socket.on("voiceCallDeclined", async ({ callId }) => {
+    socket.on("voiceCallDeclined", async ({ callId } = {}) => {
       try {
-        await markCallDeclined(callId);
+        await markCallDeclined(callId, socket.data.userId);
       } catch (error) {
         console.error("voiceCallDeclined:", error.message);
       }
     });
 
-    socket.on("voiceCallMissed", async ({ callId }) => {
+    socket.on("voiceCallMissed", async ({ callId } = {}) => {
       try {
-        await markCallMissed(callId);
+        await markCallMissed(callId, { io, redis: redisClient, userId: socket.data.userId });
       } catch (error) {
         console.error("voiceCallMissed:", error.message);
       }
     });
 
-    socket.on(
-      "updateBookingStatus",
-      async ({ bookingId, newStatus, userId }) => {
-        io.to(`user:${userId}`).emit("statusUpdated", { bookingId, newStatus });
+    // Relays a status the driver already saved via REST; the rider is
+    // taken from the booking, not from the payload.
+    socket.on("updateBookingStatus", async ({ bookingId, newStatus } = {}) => {
+      try {
+        const booking = await loadDriverBooking(socket, bookingId);
+        if (!booking) return;
+        io.to(`user:${booking.userId}`).emit("statusUpdated", { bookingId, newStatus });
+      } catch (error) {
+        console.error("updateBookingStatus:", error.message);
       }
-    );
-
-    socket.on("rejectBooking", (bookingDetails) => {
-      io.to(`user:${bookingDetails.userId}`).emit(
-        "bookingRejected",
-        bookingDetails
-      );
     });
 
-    socket.on("driverLocationUpdate", async ({ latitude, longitude, heading }) => {
+    socket.on("rejectBooking", (bookingDetails = {}) => {
+      if (socket.data.role !== "driver" || !bookingDetails.userId) return;
+      io.to(`user:${bookingDetails.userId}`).emit("bookingRejected", {
+        bookingId: bookingDetails.bookingId || bookingDetails._id,
+        driverId: socket.data.driverId,
+      });
+    });
+
+    socket.on("driverLocationUpdate", async ({ latitude, longitude, heading } = {}) => {
       if (socket.data.role !== "driver" || !socket.data.driverId) return;
       const driverId = socket.data.driverId;
 
@@ -226,7 +251,9 @@ const initializeSocket = (server, redisClient) => {
         console.error("Jump-check failed, allowing update:", error.message);
       }
 
-      sendDriverLocationToKafka(driverId, latitude, longitude);
+      persistDriverLocation(redisClient, driverId, latitude, longitude).catch((error) => {
+        console.error(`Error updating MongoDB for driver ${driverId}:`, error.message);
+      });
 
       try {
         const locationPayload = {
@@ -263,6 +290,7 @@ const initializeSocket = (server, redisClient) => {
 
     socket.on("requestDriverLocation", async (driverId) => {
       try {
+        if (!(await canTrackDriver(socket, redisClient, driverId))) return;
         const cached = await redisClient.get(`driver:${driverId}:location`);
         if (cached) {
           socket.emit("locationUpdate", JSON.parse(cached));
@@ -281,7 +309,7 @@ const initializeSocket = (server, redisClient) => {
             updatedAt: null,
           });
         } else {
-          console.error(`Driver with ID ${driverId} not found.`);
+          console.warn(`No known location for driver ${driverId}.`);
         }
       } catch (error) {
         console.error(

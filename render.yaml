@@ -1,0 +1,52 @@
+# Render Blueprint: free web service for the API (Socket.IO works over
+# Render's WebSocket support). MongoDB = Atlas M0, Redis = Upstash/Redis
+# Cloud; paste their URLs into the env vars marked sync: false.
+services:
+  - type: web
+    name: shipgoods-api
+    runtime: docker
+    region: singapore # nearest Render region to Atlas Mumbai
+    rootDir: server
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SARVAM_TOOL_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: defaultPass
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: WEATHER_API_KEY
+        sync: false
+      - key: VOICE_CALLS_ENABLED
+        value: "false"
+
+  # Next.js frontend. NEXT_PUBLIC_* values are baked in at build time, so
+  # set them before the first deploy (and redeploy after changing them).
+  - type: web
+    name: shipgoods-web
+    runtime: node
+    region: singapore
+    rootDir: client
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NEXT_PUBLIC_API_BASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SOCKET_URL
+        sync: false
+      - key: NEXT_PUBLIC_STRIPE_PUBLIC_KEY
+        sync: false

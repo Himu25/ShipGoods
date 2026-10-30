@@ -159,7 +159,7 @@ const DriverMap = ({ booking, token }) => {
 
     try {
       await axios.put(
-        `http://localhost:3000/api/booking/update-status/${booking._id}`,
+        `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/booking/update-status/${booking._id}`,
         { status: nextStatus }
       );
 
@@ -186,7 +186,7 @@ const DriverMap = ({ booking, token }) => {
   const cancelBooking = async () => {
     try {
       await axios.put(
-        `http://localhost:3000/api/booking/update-status/${booking._id}`,
+        `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/booking/update-status/${booking._id}`,
         { status: "cancelled" }
       );
       socketRef.current?.emit("updateBookingStatus", {

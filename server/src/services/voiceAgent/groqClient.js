@@ -20,6 +20,7 @@ async function callGroq(messages, tools) {
 
   const res = await fetch(GROQ_CHAT_URL, {
     method: "POST",
+    signal: AbortSignal.timeout(20000),
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({ model, messages, tools, tool_choice: "auto" }),
   });

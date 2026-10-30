@@ -14,6 +14,12 @@ const userSchema = new mongoose.Schema({
     lowercase: true,
     trim: true,
   },
+  // E.164 (+91XXXXXXXXXX). Used for the pre-pickup Sarvam call;
+  // VOICE_TEST_NUMBER overrides it while testing.
+  phone: {
+    type: String,
+    trim: true,
+  },
   password: {
     type: String,
     required: true,

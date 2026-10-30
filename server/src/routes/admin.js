@@ -44,6 +44,10 @@ router.post(
       const { type, numberPlate, model, driverId, imageUrl } = req.body;
       const adminId = req.user.id;
 
+      if (driverId && !(await Driver.exists({ _id: driverId, adminId }))) {
+        return res.status(400).json({ message: "Driver not found in your fleet" });
+      }
+
       const existingVehicle = await Vehicle.findOne({ numberPlate });
       if (existingVehicle) {
         return res.status(400).json({ message: "Number plate already exists" });
@@ -59,9 +63,14 @@ router.post(
       });
 
       await vehicle.save();
+      // nearby-drivers joins Driver.vehicleId -> Vehicle, so link both ways.
+      if (driverId) {
+        await Driver.updateOne({ _id: driverId }, { vehicleId: vehicle._id });
+      }
       res.status(201).json(vehicle);
     } catch (error) {
-      res.status(500).json({ message: error.message });
+      console.error("Add vehicle error:", error.message);
+      res.status(500).json({ message: "Error adding vehicle" });
     }
   }
 );
@@ -71,18 +80,28 @@ router.post(
   authenticateToken,
   authorizeRole("admin"),
   async (req, res) => {
+    const { name, email, licenseNumber } = req.body;
+    if (!name || !licenseNumber || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ""))) {
+      return res
+        .status(400)
+        .json({ message: "name, a valid email and licenseNumber are required" });
+    }
+    if (!process.env.defaultPass) {
+      return res.status(500).json({ message: "defaultPass is not configured" });
+    }
+
+    let driver;
     try {
-      const { name, email, licenseNumber } = req.body;
       const adminId = req.user.id;
 
-      const existingUser = await User.findOne({ email });
+      const existingUser = await User.findOne({ email: String(email).toLowerCase() });
       if (existingUser) {
         return res
           .status(400)
           .json({ message: "Driver with this email already exists" });
       }
 
-      const driver = new Driver({
+      driver = new Driver({
         name,
         licenseNumber,
         adminId,
@@ -92,7 +111,6 @@ router.post(
       const user = new User({
         name,
         email,
-        licenseNumber,
         password: process.env.defaultPass,
         role: "driver",
         driverId: driver._id,
@@ -102,7 +120,10 @@ router.post(
         message: "Driver added successfully",
       });
     } catch (error) {
-      res.status(500).json({ message: error.message });
+      // Don't leave a Driver without its login account.
+      if (driver?._id) await Driver.deleteOne({ _id: driver._id }).catch(() => {});
+      console.error("Add driver error:", error.message);
+      res.status(500).json({ message: "Error adding driver" });
     }
   }
 );
@@ -143,7 +164,6 @@ router.get(
       const vehicles = await Vehicle.find({ adminId: req.user.id }).populate(
         "driverId"
       );
-      console.log(vehicles);
       return res.status(200).json(vehicles);
     } catch (error) {
       console.error(error);
@@ -163,9 +183,12 @@ router.put(
     const { model, type, numberPlate, driverId } = req.body;
 
     try {
-      const vehicle = await Vehicle.findById(id);
+      const vehicle = await Vehicle.findOne({ _id: id, adminId: req.user.id });
       if (!vehicle) {
         return res.status(404).json({ message: "Vehicle not found" });
+      }
+      if (driverId && !(await Driver.exists({ _id: driverId, adminId: req.user.id }))) {
+        return res.status(400).json({ message: "Driver not found in your fleet" });
       }
 
       // Check if driverId is changed
@@ -178,20 +201,12 @@ router.put(
       await vehicle.save();
 
       // If driver is changed, update both old and new drivers
-      if (oldDriverId !== driverId) {
+      if (String(oldDriverId || "") !== String(driverId || "")) {
         if (oldDriverId) {
-          const oldDriver = await Driver.findById(oldDriverId);
-          if (oldDriver) {
-            oldDriver.vehicleId = null;
-            await oldDriver.save();
-          }
+          await Driver.updateOne({ _id: oldDriverId }, { vehicleId: null });
         }
         if (driverId) {
-          const newDriver = await Driver.findById(driverId);
-          if (newDriver) {
-            newDriver.vehicleId = id;
-            await newDriver.save();
-          }
+          await Driver.updateOne({ _id: driverId }, { vehicleId: id });
         }
       }
 
@@ -200,7 +215,10 @@ router.put(
         vehicle,
       });
     } catch (error) {
-      console.error("Error updating vehicle:", error);
+      console.error("Error updating vehicle:", error.message);
+      if (error.code === 11000) {
+        return res.status(400).json({ message: "Number plate already exists" });
+      }
       return res
         .status(500)
         .json({ message: "An error occurred while updating the vehicle." });
@@ -216,7 +234,7 @@ router.delete(
     const { vehicleId } = req.params;
 
     try {
-      const vehicle = await Vehicle.findById(vehicleId);
+      const vehicle = await Vehicle.findOne({ _id: vehicleId, adminId: req.user.id });
       if (!vehicle) {
         return res.status(404).json({ message: "Vehicle not found" });
       }
@@ -242,51 +260,6 @@ router.delete(
       res
         .status(500)
         .json({ message: "An error occurred while removing the driver." });
-    }
-  }
-);
-
-router.put(
-  "/change-driver/:vehicleId",
-  authenticateToken,
-  authorizeRole("admin"),
-  async (req, res) => {
-    const { vehicleId } = req.params;
-    const { driverId } = req.body;
-
-    try {
-      const vehicle = await Vehicle.findById(vehicleId);
-      if (!vehicle) {
-        return res.status(404).json({ message: "Vehicle not found" });
-      }
-
-      const oldDriverId = vehicle.driverId;
-
-      // Assign new driverId to the vehicle
-      vehicle.driverId = driverId;
-      await vehicle.save();
-
-      // If driver is changed, update both old and new drivers
-      if (oldDriverId !== driverId) {
-        if (oldDriverId) {
-          const oldDriver = await Driver.findById(oldDriverId);
-          if (oldDriver) {
-            oldDriver.vehicleId = null;
-            await oldDriver.save();
-          }
-        }
-        if (driverId) {
-          const newDriver = await Driver.findById(driverId);
-          if (newDriver) {
-            newDriver.vehicleId = vehicleId;
-            await newDriver.save();
-          }
-        }
-      }
-
-      res.status(200).json(vehicle);
-    } catch (error) {
-      res.status(500).json({ message: error.message });
     }
   }
 );
@@ -406,18 +379,15 @@ router.get(
         };
       });
 
-      console.log(performanceResults);
-
       res.status(200).json({
         adminId,
         performanceResults,
       });
     } catch (error) {
+      console.error("Driver performance error:", error.message);
       res.status(500).json({
         message: "Server error while fetching driver performance.",
-        error,
       });
-      console.log(error.message);
     }
   }
 );
@@ -478,7 +448,6 @@ router.get(
       console.error("Error fetching vehicle demand:", error.message);
       return res.status(500).json({
         message: "Server error while fetching vehicle demand.",
-        error: error.message,
       });
     }
   }

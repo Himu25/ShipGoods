@@ -6,7 +6,7 @@ const getRedisClient = () => {
   if (!redisClient) {
     redisClient = new Redis(process.env.REDIS_URL);
     redisClient.on("error", (err) => {
-      console.error("Redis connection error:", err);
+      console.error("Redis connection error:", err.message);
     });
   }
 

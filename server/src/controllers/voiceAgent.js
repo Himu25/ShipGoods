@@ -1,20 +1,31 @@
+import mongoose from "mongoose";
 import getRedisClient from "../redisClient.js";
 import VoiceCall from "../models/VoiceCall.js";
 import { getIO } from "../services/socketService.js";
 import { runAgentTurn } from "../services/voiceAgent/groqClient.js";
 import { GENERIC_TROUBLE_REPLY_HI } from "../services/voiceAgent/constants.js";
 
-// MVP conversation memory: in-process, per (user, booking). Fine for a
-// single server instance; would need Redis instead to survive a restart
-// or run behind more than one instance.
-const sessions = new Map();
-const sessionKey = (userId, bookingId) => `${userId}:${bookingId}`;
+// Conversation memory per (user, booking), in Redis so it survives a
+// restart, is shared across instances, and expires on its own.
+const sessionKey = (userId, bookingId) => `voiceAgent:session:${userId}:${bookingId}`;
+const SESSION_TTL_SEC = 60 * 60;
 const MAX_HISTORY_TURNS = 20;
+const MAX_TEXT_CHARS = 500;
+
+async function loadHistory(redis, key) {
+  try {
+    return JSON.parse((await redis.get(key)) || "[]");
+  } catch {
+    return [];
+  }
+}
 
 export const chatWithAgent = async (req, res) => {
   try {
-    const { bookingId, callId, text, userLat, userLng } = req.body;
-    if (!bookingId || !text) {
+    const { bookingId, userLat, userLng } = req.body;
+    const callId = mongoose.isValidObjectId(req.body.callId) ? req.body.callId : undefined;
+    const text = String(req.body.text || "").slice(0, MAX_TEXT_CHARS);
+    if (!mongoose.isValidObjectId(bookingId) || !text) {
       return res.status(400).json({ message: "bookingId and text are required." });
     }
 
@@ -22,15 +33,16 @@ export const chatWithAgent = async (req, res) => {
     // client-supplied userId here, same reasoning as the socket auth
     // hardening done earlier this session.
     const userId = req.user.id;
+    const redis = getRedisClient();
     const key = sessionKey(userId, bookingId);
-    const history = sessions.get(key) || [];
+    const history = await loadHistory(redis, key);
 
     // Rider's live GPS position, when the browser granted permission —
     // only used by findCarLandmark for directional guidance; every other
     // tool is unaffected if these are undefined.
     const lat = Number.isFinite(userLat) ? userLat : undefined;
     const lng = Number.isFinite(userLng) ? userLng : undefined;
-    const ctx = { userId, bookingId, callId, redis: getRedisClient(), io: getIO(), userLat: lat, userLng: lng };
+    const ctx = { userId, bookingId, callId, redis, io: getIO(), userLat: lat, userLng: lng };
     const { reply, toolCalls, refused } = await runAgentTurn({ ctx, history, userText: text });
 
     if (!refused) {
@@ -39,7 +51,7 @@ export const chatWithAgent = async (req, res) => {
         { role: "user", content: text },
         { role: "assistant", content: reply },
       ].slice(-MAX_HISTORY_TURNS);
-      sessions.set(key, nextHistory);
+      await redis.set(key, JSON.stringify(nextHistory), "EX", SESSION_TTL_SEC);
     }
 
     if (callId) {
@@ -47,10 +59,10 @@ export const chatWithAgent = async (req, res) => {
       // VoiceCall for the eval/audit trail (transcript + toolCalls),
       // same shape the arrival-call pipeline already uses.
       VoiceCall.findOneAndUpdate(
-        { _id: callId, status: "ringing" },
+        { _id: callId, userId, status: "ringing" },
         { status: "active", answeredAt: new Date() }
       ).catch(() => {});
-      VoiceCall.findByIdAndUpdate(callId, {
+      VoiceCall.updateOne({ _id: callId, userId }, {
         $push: {
           transcript: {
             $each: [
@@ -81,11 +93,11 @@ export const chatWithAgent = async (req, res) => {
 export const endAgentCall = async (req, res) => {
   try {
     const { callId } = req.body;
-    if (!callId) {
+    if (!mongoose.isValidObjectId(callId)) {
       return res.status(400).json({ message: "callId is required." });
     }
     await VoiceCall.findOneAndUpdate(
-      { _id: callId, status: { $in: ["ringing", "active"] } },
+      { _id: callId, userId: req.user.id, status: { $in: ["ringing", "active"] } },
       { status: "completed", endedAt: new Date(), endedReason: "hangup" }
     );
     res.status(200).json({ ok: true });
@@ -97,9 +109,14 @@ export const endAgentCall = async (req, res) => {
 
 export const synthesizeSpeech = async (req, res) => {
   try {
-    const { text, speaker } = req.body;
+    const { speaker } = req.body;
+    const text = String(req.body.text || "").trim();
     if (!text) {
       return res.status(400).json({ message: "text is required." });
+    }
+    // Every request is a paid Sarvam call; agent replies are 1-2 sentences.
+    if (text.length > MAX_TEXT_CHARS) {
+      return res.status(400).json({ message: `text must be at most ${MAX_TEXT_CHARS} characters.` });
     }
     const apiKey = process.env.SARVAM_API_KEY;
     if (!apiKey) {
@@ -108,6 +125,7 @@ export const synthesizeSpeech = async (req, res) => {
 
     const sarvamRes = await fetch("https://api.sarvam.ai/text-to-speech", {
       method: "POST",
+      signal: AbortSignal.timeout(15000),
       headers: {
         "api-subscription-key": apiKey,
         "Content-Type": "application/json",

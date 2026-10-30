@@ -42,12 +42,23 @@ const voiceCallSchema = new mongoose.Schema(
       enum: ["ringing", "active", "completed", "missed", "declined", "failed"],
       default: "ringing",
     },
+    // One pre-pickup call per booking (ETA <= 6 min or <= 2 km).
     callType: {
       type: String,
-      enum: ["eta", "arrival"],
-      default: "arrival",
+      enum: ["pickup"],
+      default: "pickup",
     },
+    // "sarvam" = real phone call; "in_app" = the browser ring fallback.
+    channel: {
+      type: String,
+      enum: ["sarvam", "in_app"],
+      default: "sarvam",
+    },
+    sarvamAttemptId: { type: String, index: true },
     triggerDistanceM: { type: Number },
+    triggerEtaMinutes: { type: Number },
+    durationSeconds: { type: Number },
+    failureReason: { type: String },
     retryCount: { type: Number, default: 0 },
     nextRetryAt: { type: Date },
     acknowledged: { type: Boolean, default: false },

@@ -7,7 +7,7 @@ export default async function Page({ params }) {
   const token = cookieStore.get("token")?.value;
 
   const fetchBookingDetails = async (token) => {
-    const res = await fetch(`http://localhost:3000/api/booking/${bookingId}`, {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/booking/${bookingId}`, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,

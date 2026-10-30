@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Rate, message } from "antd";
+import Cookies from "js-cookie";
 
 const RatingComponent = ({ bookingId, initialRating }) => {
   const [rating, setRating] = useState(initialRating || 0);
@@ -12,7 +13,10 @@ const RatingComponent = ({ bookingId, initialRating }) => {
         `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/booking/${bookingId}/rate`,
         {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Cookies.get("token")}`,
+          },
           body: JSON.stringify({ rating: value }),
         }
       );
