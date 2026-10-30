@@ -166,53 +166,87 @@ export const getVehicleIcon = (type) =>
 
 export const driverIcon = vehicleTypeIcons.car;
 
-/** Static live-tracking icon — rotate via CSS --h on `.sg-live-car__body` */
-export const liveDriverIcon = divIcon(
-  `
-  <div class="sg-live-car">
-    <div class="sg-live-car__shadow"></div>
-    <div class="sg-live-car__body">
-      <svg width="44" height="44" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="sg-live-body" x1="32" y1="6" x2="32" y2="58" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#2a2a2e"/>
-            <stop offset="0.45" stop-color="#111114"/>
-            <stop offset="1" stop-color="#050506"/>
-          </linearGradient>
-          <linearGradient id="sg-live-glass" x1="32" y1="14" x2="32" y2="28" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#dbeafe"/>
-            <stop offset="1" stop-color="#64748b"/>
-          </linearGradient>
-          <linearGradient id="sg-live-rear" x1="32" y1="36" x2="32" y2="48" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#94a3b8"/>
-            <stop offset="1" stop-color="#475569"/>
-          </linearGradient>
-        </defs>
-        <!-- body (nose = top / north) -->
-        <path d="M22 14c0-4.4 4.5-8 10-8s10 3.6 10 8v32c0 4.4-4.5 8-10 8s-10-3.6-10-8V14z" fill="url(#sg-live-body)"/>
-        <path d="M23.2 15c.4-3.6 3.4-6.2 8.8-6.2.5 0 1 0 1.4.05-3 .55-4.8 2.6-4.8 5.7v30c0 2.4 1 4.4 2.6 5.5-.4.1-.9.15-1.4.15-4.2 0-6.6-2.6-6.6-6.2V15z" fill="#fff" opacity=".1"/>
-        <!-- windshield -->
-        <rect x="25" y="16" width="14" height="11" rx="2.6" fill="url(#sg-live-glass)"/>
-        <rect x="25" y="16" width="14" height="2.2" rx="1" fill="#334155" opacity=".35"/>
-        <!-- roof -->
-        <rect x="27.5" y="29" width="9" height="5" rx="1.2" fill="#fff" opacity=".06"/>
-        <!-- rear window -->
-        <rect x="25.5" y="36.5" width="13" height="8" rx="2.2" fill="url(#sg-live-rear)" opacity=".9"/>
-        <!-- mirrors -->
-        <rect x="18.5" y="26" width="3.8" height="7" rx="1.6" fill="#0a0a0b"/>
-        <rect x="41.7" y="26" width="3.8" height="7" rx="1.6" fill="#0a0a0b"/>
-        <!-- headlights -->
-        <rect x="24.5" y="8.2" width="4.2" height="2.6" rx="1.2" fill="#fef08a"/>
-        <rect x="35.3" y="8.2" width="4.2" height="2.6" rx="1.2" fill="#fef08a"/>
-        <!-- taillights -->
-        <rect x="24.8" y="51.5" width="3.8" height="2.2" rx="1" fill="#fb7185"/>
-        <rect x="35.4" y="51.5" width="3.8" height="2.2" rx="1" fill="#fb7185"/>
-      </svg>
-    </div>
-  </div>`,
-  [52, 52],
-  [26, 26]
-);
+/**
+ * Top-down sedan for live tracking, nose pointing north; the marker
+ * rotates `.sg-live-car` via the CSS var --h. "bot" is the violet
+ * showcase robotaxi with a roof sensor; "standard" is the black sedan.
+ */
+function liveCarSvg(variant) {
+  const bot = variant === "bot";
+  const id = `sg-car-${variant}`;
+  const body = bot
+    ? ["#4c1d95", "#8b5cf6", "#4c1d95"]
+    : ["#050506", "#3a3a40", "#050506"];
+  const roof = bot ? "#6d28d9" : "#1c1c20";
+  return `
+    <svg width="40" height="48" viewBox="0 0 40 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="${id}-body" x1="6" y1="0" x2="34" y2="0" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="${body[0]}"/>
+          <stop offset="0.5" stop-color="${body[1]}"/>
+          <stop offset="1" stop-color="${body[2]}"/>
+        </linearGradient>
+        <linearGradient id="${id}-glass" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#e2e8f0"/>
+          <stop offset="1" stop-color="#475569"/>
+        </linearGradient>
+        <radialGradient id="${id}-sensor" cx="0.5" cy="0.4" r="0.6">
+          <stop offset="0" stop-color="#ecfeff"/>
+          <stop offset="0.55" stop-color="#22d3ee"/>
+          <stop offset="1" stop-color="#0e7490"/>
+        </radialGradient>
+      </defs>
+      <!-- body: slightly narrower nose, wider rear -->
+      <path d="M12.5 6.5C13.5 3 16.4 1.5 20 1.5s6.5 1.5 7.5 5l2 7.5c.7 2.6 1 5.2 1 7.8V38c0 4.6-3 8.5-10.5 8.5S9.5 42.6 9.5 38V21.8c0-2.6.3-5.2 1-7.8l2-7.5z" fill="url(#${id}-body)"/>
+      <!-- hood sheen -->
+      <path d="M16 5c1-1.6 2.4-2.2 4-2.2s3 .6 4 2.2l-1 6h-6l-1-6z" fill="#fff" opacity="${bot ? 0.18 : 0.1}"/>
+      <!-- windshield -->
+      <path d="M12.6 15.2c4.6-1.7 10.2-1.7 14.8 0l-1.6 6.6c-3.8-.9-7.8-.9-11.6 0l-1.6-6.6z" fill="url(#${id}-glass)"/>
+      <!-- roof -->
+      <rect x="13.6" y="21.6" width="12.8" height="13.2" rx="3.2" fill="${roof}"/>
+      <rect x="14.6" y="22.4" width="5" height="11.6" rx="2.4" fill="#fff" opacity="0.07"/>
+      <!-- side windows -->
+      <path d="M11.4 22.2l2 .6v11.6l-2 1.2V22.2z" fill="#94a3b8" opacity="0.75"/>
+      <path d="M28.6 22.2l-2 .6v11.6l2 1.2V22.2z" fill="#94a3b8" opacity="0.75"/>
+      <!-- rear window -->
+      <path d="M13.8 35.6c4.1.9 8.3.9 12.4 0l1 4.4c-4.8 1.3-9.6 1.3-14.4 0l1-4.4z" fill="url(#${id}-glass)" opacity="0.85"/>
+      <!-- mirrors -->
+      <path d="M9.6 16.2l-2.6.8c-.6.2-.8.8-.5 1.3l.6.9 2.5-.6V16.2z" fill="${body[0]}"/>
+      <path d="M30.4 16.2l2.6.8c.6.2.8.8.5 1.3l-.6.9-2.5-.6V16.2z" fill="${body[0]}"/>
+      <!-- headlights -->
+      <path d="M13.2 5.6c.8-1 1.8-1.4 3-1.4l-.6 2.6-2.8.4.4-1.6z" fill="#fefce8"/>
+      <path d="M26.8 5.6c-.8-1-1.8-1.4-3-1.4l.6 2.6 2.8.4-.4-1.6z" fill="#fefce8"/>
+      <!-- taillights -->
+      <rect x="11" y="43.2" width="5" height="1.6" rx=".8" fill="#ef4444"/>
+      <rect x="24" y="43.2" width="5" height="1.6" rx=".8" fill="#ef4444"/>
+      ${
+        bot
+          ? `<!-- roof sensor (robotaxi lidar) -->
+      <circle cx="20" cy="28.2" r="3.5" fill="#0f172a" opacity="0.55"/>
+      <circle cx="20" cy="28.2" r="2.7" fill="url(#${id}-sensor)"/>
+      <circle cx="19.2" cy="27.4" r=".8" fill="#fff" opacity="0.9"/>`
+          : ""
+      }
+    </svg>`;
+}
+
+function liveCarIcon(variant) {
+  const bot = variant === "bot";
+  return divIcon(
+    `
+    <div class="sg-live-car${bot ? " sg-live-car--bot" : ""}">
+      ${bot ? '<span class="sg-live-car__halo"></span>' : ""}
+      <div class="sg-live-car__shadow"></div>
+      <div class="sg-live-car__body">${liveCarSvg(variant)}</div>
+      ${bot ? '<span class="sg-live-car__badge" title="ShipGoods demo bot">🤖</span>' : ""}
+    </div>`,
+    [56, 56],
+    [28, 28]
+  );
+}
+
+export const liveDriverIcon = liveCarIcon("standard");
+export const liveBotIcon = liveCarIcon("bot");
 
 /** @deprecated use liveDriverIcon + CSS rotation */
 export function getMovingDriverIcon() {
@@ -221,15 +255,21 @@ export function getMovingDriverIcon() {
 
 export const currentLocationIcon = divIcon(currentSvg, [28, 28], [14, 14]);
 
+// Dark route with a white casing reads cleanly on the light basemap.
 export const ROUTE_LINE_STYLES = [
-  { color: "#1d4ed8", opacity: 0.2, weight: 10 },
-  { color: "#3b82f6", opacity: 0.95, weight: 5 },
+  { color: "#ffffff", opacity: 1, weight: 9, lineCap: "round", lineJoin: "round" },
+  { color: "#111827", opacity: 0.92, weight: 5, lineCap: "round", lineJoin: "round" },
+];
+export const BOT_ROUTE_LINE_STYLES = [
+  { color: "#ffffff", opacity: 1, weight: 9, lineCap: "round", lineJoin: "round" },
+  { color: "#7c3aed", opacity: 0.95, weight: 5, lineCap: "round", lineJoin: "round" },
 ];
 
+// CARTO Voyager: light, low-noise basemap (OSM data, free with attribution).
 export const MAP_TILE = {
-  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+  url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
   attribution:
-    "Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom",
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
 };
 
 export const DEFAULT_CENTER = [28.6654, 77.4391];

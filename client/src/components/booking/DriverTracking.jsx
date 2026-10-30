@@ -10,6 +10,8 @@ import {
   pickupIcon,
   dropoffIcon,
   liveDriverIcon,
+  liveBotIcon,
+  BOT_ROUTE_LINE_STYLES,
   DEFAULT_CENTER,
   MAP_TILE,
   ROUTE_LINE_STYLES,
@@ -20,6 +22,8 @@ const GLIDE_MS = 900;
 const TERMINAL_STATUSES = ["completed", "cancelled"];
 const JUMP_SNAP_METERS = 400; // a jump bigger than this snaps instead of gliding
 const STALE_AFTER_MS = 15000; // no signal (push or poll reply) in 15s -> flag it
+const OFF_ROUTE_METERS = 60; // further than this from the line -> re-route
+const REROUTE_THROTTLE_MS = 10000;
 
 function toLatLng(coords) {
   if (!coords || coords.length < 2) return null;
@@ -132,7 +136,7 @@ function StableTripView({ driverPos, target, routePoints, phaseKey }) {
   return null;
 }
 
-function SmoothDriverMarker({ target }) {
+function SmoothDriverMarker({ target, icon, posRef }) {
   const markerRef = useRef(null);
   const state = useRef(null);
   const rafRef = useRef(0);
@@ -221,6 +225,7 @@ function SmoothDriverMarker({ target }) {
         s.lng = lerp(s.fromLng, s.toLng, t);
         s.heading = lerpAngle(s.fromHeading, s.toHeading, t);
         marker.setLatLng([s.lat, s.lng]);
+        if (posRef) posRef.current = { lat: s.lat, lng: s.lng };
         const el = marker.getElement?.();
         const car = el?.querySelector?.(".sg-live-car");
         if (car) car.style.setProperty("--h", `${s.heading}deg`);
@@ -237,10 +242,77 @@ function SmoothDriverMarker({ target }) {
     <Marker
       ref={markerRef}
       position={initialPos.current}
-      icon={liveDriverIcon}
+      icon={icon || liveDriverIcon}
       zIndexOffset={1000}
     />
   );
+}
+
+/** Nearest point on the route to (lat, lng), searched near the last hit. */
+function projectOnRoute(route, lat, lng, hint) {
+  const kx = 111320 * Math.cos((lat * Math.PI) / 180);
+  const ky = 110540;
+  const from = Math.max(0, hint - 3);
+  // First frame on a new route: scan it all; afterwards only near the car.
+  const to = hint === 0 ? route.length - 1 : Math.min(route.length - 1, hint + 60);
+  let best = { index: hint, point: route[Math.min(hint, route.length - 1)], dist: Infinity };
+  for (let i = from; i < to; i += 1) {
+    const [aLat, aLng] = route[i];
+    const [bLat, bLng] = route[i + 1];
+    const ax = (aLng - lng) * kx, ay = (aLat - lat) * ky;
+    const bx = (bLng - lng) * kx, by = (bLat - lat) * ky;
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2));
+    const px = ax + t * dx, py = ay + t * dy;
+    const dist = Math.hypot(px, py);
+    if (dist < best.dist) {
+      best = { index: i, point: [aLat + (bLat - aLat) * t, aLng + (bLng - aLng) * t], dist };
+    }
+  }
+  return best;
+}
+
+/**
+ * Draws only the road still ahead of the car: every frame the line starts
+ * at the car's animated position, so nothing trails behind it (as in ride
+ * apps). Calls onOffRoute when the car leaves the line.
+ */
+function RemainingRoute({ route, posRef, styles, onOffRoute }) {
+  const lineRefs = useRef([]);
+  const hint = useRef(0);
+  const lastReroute = useRef(0);
+
+  useEffect(() => {
+    hint.current = 0;
+    let raf;
+    const tick = () => {
+      const pos = posRef.current;
+      if (pos && route?.length > 1) {
+        const hit = projectOnRoute(route, pos.lat, pos.lng, hint.current);
+        hint.current = hit.index;
+        const ahead = [[pos.lat, pos.lng], hit.point, ...route.slice(hit.index + 1)];
+        lineRefs.current.forEach((line) => line?.setLatLngs(ahead));
+        if (hit.dist > OFF_ROUTE_METERS && Date.now() - lastReroute.current > REROUTE_THROTTLE_MS) {
+          lastReroute.current = Date.now();
+          onOffRoute?.();
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [route, posRef, onOffRoute]);
+
+  if (!route || route.length < 2) return null;
+  return styles.map((style, i) => (
+    <Polyline
+      key={`ahead-${i}`}
+      ref={(el) => (lineRefs.current[i] = el)}
+      positions={route}
+      pathOptions={style}
+    />
+  ));
 }
 
 const DriverTracking = ({ booking }) => {
@@ -252,7 +324,14 @@ const DriverTracking = ({ booking }) => {
   const prevLoc = useRef(null);
   const lastSeenAt = useRef(null);
   const routeFetchedFor = useRef("");
+  const carPosRef = useRef(null);
+  const [rerouteTick, setRerouteTick] = useState(0);
   const socket = useSocket();
+  const isBot = booking?.driverId?.demo === "bot";
+  const requestReroute = React.useCallback(() => {
+    routeFetchedFor.current = "";
+    setRerouteTick((n) => n + 1);
+  }, []);
 
   const pickup = useMemo(
     () => toLatLng(booking?.src?.coordinates),
@@ -301,6 +380,7 @@ const DriverTracking = ({ booking }) => {
     target?.[1],
     driverLocation?.latitude,
     driverLocation?.longitude,
+    rerouteTick,
   ]);
 
   useEffect(() => {
@@ -412,16 +492,20 @@ const DriverTracking = ({ booking }) => {
           />
         )}
 
-        {approachRoute?.length > 1 &&
-          ROUTE_LINE_STYLES.map((style, i) => (
-            <Polyline
-              key={`approach-${i}`}
-              positions={approachRoute}
-              pathOptions={style}
-            />
-          ))}
+        {!arrived && (
+          <RemainingRoute
+            route={approachRoute}
+            posRef={carPosRef}
+            styles={isBot ? BOT_ROUTE_LINE_STYLES : ROUTE_LINE_STYLES}
+            onOffRoute={requestReroute}
+          />
+        )}
 
-        <SmoothDriverMarker target={displayPos} />
+        <SmoothDriverMarker
+          target={displayPos}
+          icon={isBot ? liveBotIcon : liveDriverIcon}
+          posRef={carPosRef}
+        />
 
         {!goingToDropoff && pickup && (
           <Marker position={pickup} icon={pickupIcon} />
@@ -440,8 +524,12 @@ const DriverTracking = ({ booking }) => {
               : goingToDropoff
                 ? "Driver en route to drop-off"
                 : arrived
-                  ? "Driver has arrived at pickup"
-                  : "Driver en route to pickup"}
+                  ? isBot
+                    ? "🤖 ShipGoods Bot has arrived at your pickup"
+                    : "Driver has arrived at pickup"
+                  : isBot
+                    ? "🤖 ShipGoods Bot is on the way to your pickup"
+                    : "Driver en route to pickup"}
         </div>
       </div>
     </div>
