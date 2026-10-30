@@ -265,11 +265,11 @@ export const BOT_ROUTE_LINE_STYLES = [
   { color: "#7c3aed", opacity: 0.95, weight: 5, lineCap: "round", lineJoin: "round" },
 ];
 
-// CARTO Voyager: light, low-noise basemap (OSM data, free with attribution).
+// Standard OpenStreetMap tiles: no API key needed.
 export const MAP_TILE = {
-  url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+  url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
   attribution:
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 };
 
 export const DEFAULT_CENTER = [28.6654, 77.4391];
