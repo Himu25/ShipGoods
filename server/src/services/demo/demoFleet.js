@@ -30,6 +30,14 @@ const FILLER_NAMES = [
   "Kavita Negi", "Manoj Gupta", "Ritesh Saini", "Anil Chauhan", "Farhan Ali",
   "Deepa Joshi", "Rakesh Bisht", "Sanjay Pal", "Nisha Verma", "Gopal Das",
 ];
+// The per-customer bot looks like a real driver on the map and in the call.
+const BOT_FIRST_NAMES = [
+  "Mallu", "Kanhaiya", "Suresh", "Ramesh", "Mahesh", "Dinesh", "Raju",
+  "Pappu", "Bablu", "Santosh", "Ganesh", "Mukesh", "Birju", "Chhotu",
+];
+const BOT_SURNAMES = ["Yadav", "Kumar", "Singh", "Prasad", "Lal", "Chauhan", "Pal"];
+const LEGACY_BOT_NAME = "ShipGoods Bot";
+const BOT_PLATE_PREFIX = "DL1CB"; // reads like a Delhi plate, e.g. DL1CB4821
 const MODELS = {
   car: ["Maruti Swift Dzire", "Hyundai i20", "Honda Amaze", "Tata Tiago"],
   truck: ["Tata Ace Gold", "Mahindra Bolero Pickup", "Ashok Leyland Dost", "Tata 407"],
@@ -39,6 +47,7 @@ const MODELS = {
 const VEHICLE_TYPES = Object.keys(MODELS);
 
 const pick = (list) => list[crypto.randomInt(list.length)];
+export const botName = () => `${pick(BOT_FIRST_NAMES)} ${pick(BOT_SURNAMES)}`;
 const randomBetween = (min, max) => min + Math.random() * (max - min);
 
 /** A point `meters` from (lat, lng) on a random bearing. */
@@ -75,12 +84,25 @@ async function uniquePlate(prefix) {
 /** Bot driver + vehicle + login for a customer; created once, then reused. */
 async function getOrCreateBot(userId, vehicleType, near) {
   const existing = await Driver.findOne({ demo: "bot", demoOwnerId: userId });
-  if (existing) return existing;
+  if (existing) {
+    // Bots made before driver names existed get one on their next use.
+    if (existing.name === LEGACY_BOT_NAME) {
+      existing.name = botName();
+      await existing.save();
+      await User.updateOne({ driverId: existing._id }, { name: existing.name });
+      await Vehicle.updateOne(
+        { _id: existing.vehicleId, numberPlate: /^BOT/ },
+        { numberPlate: await uniquePlate(BOT_PLATE_PREFIX) }
+      );
+    }
+    return existing;
+  }
 
   const adminId = await demoAdminId();
   const start = offsetPoint(near.lat, near.lng, randomBetween(BOT_MIN_M, BOT_MAX_M));
+  const name = botName();
   const driver = await Driver.create({
-    name: "ShipGoods Bot",
+    name,
     licenseNumber: `DEMO-BOT-${String(userId).slice(-8)}`,
     isAvailable: true,
     adminId,
@@ -90,7 +112,7 @@ async function getOrCreateBot(userId, vehicleType, near) {
   });
   const vehicle = await Vehicle.create({
     type: vehicleType,
-    numberPlate: await uniquePlate("BOT"),
+    numberPlate: await uniquePlate(BOT_PLATE_PREFIX),
     model: pick(MODELS[vehicleType]),
     adminId,
     driverId: driver._id,
@@ -100,7 +122,7 @@ async function getOrCreateBot(userId, vehicleType, near) {
   // The bot logs in like any driver (JWT minted in botDriver.js), so it
   // needs a driver User; the password is random and never used.
   await User.create({
-    name: "ShipGoods Bot",
+    name,
     email: `bot-${userId}@demo.shipgoods.local`,
     password: crypto.randomBytes(24).toString("hex"),
     role: "driver",

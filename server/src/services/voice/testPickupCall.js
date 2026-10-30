@@ -1,7 +1,8 @@
 /**
  * Test pickup call with live data: a fake customer/driver/vehicle (created
  * once and reused) and a fresh accepted booking, then the normal
- * startPickupCall path rings VOICE_TEST_NUMBER — never a real customer.
+ * startPickupCall path rings a verified number (VOICE_TEST_NUMBER or one
+ * of VOICE_ALLOWED_NUMBERS) — never an arbitrary one.
  *
  * While the call runs, the driver drives along the real road towards the
  * pickup (its live location in Redis moves every few seconds), so the
@@ -12,7 +13,13 @@ import Booking from "../../models/Booking.js";
 import Driver from "../../models/Driver.js";
 import User from "../../models/User.js";
 import Vehicle from "../../models/Vehicle.js";
-import { isSarvamConfigured, missingSarvamConfig, normalizePhone } from "../sarvam/outbound.js";
+import {
+  allowedNumbers,
+  isSarvamConfigured,
+  missingSarvamConfig,
+  normalizePhone,
+} from "../sarvam/outbound.js";
+import { botName } from "../demo/demoFleet.js";
 import { startPickupCall } from "./arrivalDetector.js";
 
 const OSRM = "https://router.project-osrm.org/route/v1/driving";
@@ -147,10 +154,20 @@ async function driveTowardsPickup(redis, driverId) {
   activeDrive = { timer, stop };
 }
 
-/** Why a test call can't be placed right now, or null if it can. */
-export function testCallBlocker() {
-  if (!normalizePhone(process.env.VOICE_TEST_NUMBER)) {
-    return "VOICE_TEST_NUMBER is not set (test calls never ring a real customer)";
+/** Verified numbers a test call may ring; the first is the default. */
+function verifiedNumbers() {
+  const test = normalizePhone(process.env.VOICE_TEST_NUMBER);
+  return [...new Set([test, ...(allowedNumbers() || [])].filter(Boolean))];
+}
+
+/** Why a test call to `phone` (or the default) can't be placed, or null. */
+export function testCallBlocker(phone) {
+  const numbers = verifiedNumbers();
+  if (!numbers.length) {
+    return "Set VOICE_TEST_NUMBER or VOICE_ALLOWED_NUMBERS (test calls only ring verified numbers)";
+  }
+  if (phone && !numbers.includes(normalizePhone(phone))) {
+    return `${phone} is not VOICE_TEST_NUMBER or in VOICE_ALLOWED_NUMBERS`;
   }
   if (!isSarvamConfigured()) {
     return `Sarvam is not configured; missing: ${missingSarvamConfig().join(", ")}`;
@@ -159,15 +176,21 @@ export function testCallBlocker() {
 }
 
 /**
- * Creates the fake booking, parks the driver ~1.5 km from pickup, dials
- * VOICE_TEST_NUMBER and (unless `drive` is false) starts the driver moving.
+ * Creates the fake booking (with a freshly named driver), parks the driver
+ * ~1.5 km from pickup, dials `phone` (default: the first verified number)
+ * and, unless `drive` is false, starts the driver moving.
  * Resolves to { booking, call }.
  */
-export async function placeTestPickupCall({ io = null, redis, drive = true }) {
-  const blocker = testCallBlocker();
+export async function placeTestPickupCall({ io = null, redis, phone, drive = true }) {
+  const blocker = testCallBlocker(phone);
   if (blocker) throw new Error(blocker);
 
   const { customer, driver, vehicle } = await findOrCreateFixtures();
+  // The fake customer "is" the verified number being rung.
+  customer.phone = normalizePhone(phone) || verifiedNumbers()[0];
+  await customer.save();
+  driver.name = botName();
+  await driver.save();
   const booking = await Booking.create({
     userId: customer._id,
     driverId: driver._id,

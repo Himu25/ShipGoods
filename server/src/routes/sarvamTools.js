@@ -157,15 +157,17 @@ let lastTestCallAt = 0;
 
 /**
  * Test pickup call with live tools, placed by the deployed server so the
- * booking and VoiceCall live in the same database the tools read. Only
- * ever rings VOICE_TEST_NUMBER; guarded by the tool secret and a 1/min limit.
+ * booking and VoiceCall live in the same database the tools read. Rings
+ * body.phone or the default — only ever a verified number (see
+ * testCallBlocker); guarded by the tool secret and a 1/min limit.
  */
 router.post(
   "/voice/test-call",
   express.json(),
   requireToolSecret,
   wrap(async (req, res) => {
-    const blocker = testCallBlocker();
+    const phone = req.body?.phone ? String(req.body.phone) : undefined;
+    const blocker = testCallBlocker(phone);
     if (blocker) return res.status(503).json({ error: "not_configured", detail: blocker });
 
     const waitMs = lastTestCallAt + TEST_CALL_COOLDOWN_MS - Date.now();
@@ -174,7 +176,7 @@ router.post(
     }
     lastTestCallAt = Date.now();
 
-    const { booking, call } = await placeTestPickupCall({ io: getIO(), redis: getRedisClient() });
+    const { booking, call } = await placeTestPickupCall({ io: getIO(), redis: getRedisClient(), phone });
     const placed = call?.channel === "sarvam" && !!call.sarvamAttemptId;
     res.status(placed ? 200 : 502).json({
       placed,

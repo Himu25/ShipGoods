@@ -5,7 +5,7 @@ import { haversineMeters, pickupLatLng } from "./geo.js";
 import { firstName } from "./guardrails.js";
 import { estimateRoute } from "../voiceAgent/tripService.js";
 import { ETA_GREETING_HI } from "../voiceAgent/guardrails.js";
-import { isSarvamConfigured, normalizePhone, placeOutboundCall } from "../sarvam/outbound.js";
+import { dialNumberFor, isSarvamConfigured, placeOutboundCall } from "../sarvam/outbound.js";
 
 export const ARRIVE_METERS = 30;
 // Only ask a routing API for an ETA once the driver is plausibly within
@@ -166,8 +166,8 @@ async function dialPickupCall(callId, { io, redis, etaMinutes }) {
     etaMinutes: eta,
   };
 
-  // VOICE_TEST_NUMBER wins so testing never rings a real customer.
-  const phone = normalizePhone(process.env.VOICE_TEST_NUMBER || booking.userId?.phone);
+  // Only verified numbers are ever rung (see dialNumberFor).
+  const { phone, reason } = dialNumberFor(booking.userId?.phone);
   if (isSarvamConfigured() && phone) {
     try {
       const attemptId = await placeOutboundCall({
@@ -198,7 +198,7 @@ async function dialPickupCall(callId, { io, redis, etaMinutes }) {
   } else {
     console.warn(
       `Pickup call for booking ${booking._id} using in-app ring (${
-        !phone ? "no customer phone" : "Sarvam not configured"
+        !phone ? reason : "Sarvam not configured"
       })`
     );
   }

@@ -36,6 +36,40 @@ export function normalizePhone(raw) {
   return null;
 }
 
+/** Numbers verified for calling (VOICE_ALLOWED_NUMBERS, comma-separated),
+ * or null when unset. */
+export function allowedNumbers() {
+  const list = String(process.env.VOICE_ALLOWED_NUMBERS || "")
+    .split(",")
+    .map(normalizePhone)
+    .filter(Boolean);
+  return list.length ? new Set(list) : null;
+}
+
+/**
+ * The number a pickup call may ring for this customer. With
+ * VOICE_ALLOWED_NUMBERS set, only a customer whose own phone is on that
+ * list is rung directly; anyone else goes to VOICE_TEST_NUMBER (if set).
+ * Without the list, VOICE_TEST_NUMBER wins so testing never rings a real
+ * customer. Returns { phone } or { phone: null, reason }.
+ */
+export function dialNumberFor(customerPhone) {
+  const customer = normalizePhone(customerPhone);
+  const test = normalizePhone(process.env.VOICE_TEST_NUMBER);
+  const allowed = allowedNumbers();
+
+  if (allowed) {
+    if (customer && allowed.has(customer)) return { phone: customer };
+    if (test) return { phone: test };
+    return {
+      phone: null,
+      reason: customer ? "customer number is not in VOICE_ALLOWED_NUMBERS" : "no customer phone",
+    };
+  }
+  const phone = test || customer;
+  return phone ? { phone } : { phone: null, reason: "no customer phone" };
+}
+
 export function webhookUrl() {
   return `${process.env.PUBLIC_BASE_URL.replace(/\/+$/, "")}/api/voice/sarvam-webhook`;
 }

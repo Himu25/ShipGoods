@@ -20,12 +20,13 @@ const TERMINAL_STATUSES = ["completed", "cancelled"];
 const STALE_AFTER_MS = 15000; // no signal (push or poll reply) in 15s -> flag it
 const JITTER_DEGREES = 0.00002; // ~2m; smaller moves are GPS noise
 
-function statusText({ hasPos, lost, goingToDropoff, arrived, isBot }) {
+function statusText({ hasPos, lost, goingToDropoff, arrived, driverName }) {
+  const who = driverName || "Driver";
   if (!hasPos) return "Waiting for driver location…";
   if (lost) return "Lost contact with driver — showing last known position";
-  if (goingToDropoff) return "Driver en route to drop-off";
-  if (arrived) return isBot ? "ShipGoods Bot has arrived at your pickup" : "Driver has arrived at pickup";
-  return isBot ? "ShipGoods Bot is on the way to your pickup" : "Driver en route to pickup";
+  if (goingToDropoff) return `${who} is on the way to drop-off`;
+  if (arrived) return `${who} has arrived at your pickup`;
+  return `${who} is on the way to your pickup`;
 }
 
 const DriverTracking = ({ booking }) => {
@@ -163,7 +164,13 @@ const DriverTracking = ({ booking }) => {
             className="sg-map-pill__dot"
             style={isBot && !lost ? { "--dot": "#7c3aed" } : undefined}
           />
-          {statusText({ hasPos: !!driverPos, lost, goingToDropoff, arrived, isBot })}
+          {statusText({
+            hasPos: !!driverPos,
+            lost,
+            goingToDropoff,
+            arrived,
+            driverName: booking?.driverId?.name?.split(" ")[0],
+          })}
         </div>
       </div>
     </div>

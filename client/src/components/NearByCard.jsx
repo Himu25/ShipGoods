@@ -79,7 +79,7 @@ const NearByCard = ({
       setRequesting(false);
       if (isDemoBot) {
         message.success({
-          content: `🤖 ${driverName || "ShipGoods Bot"} accepted your pickup and started moving towards you!`,
+          content: `🤖 ${driverName || "Your driver"} accepted your pickup and started moving towards you!`,
           duration: 5,
         });
       } else {
