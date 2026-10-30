@@ -160,6 +160,9 @@ let lastTestCallAt = 0;
  * booking and VoiceCall live in the same database the tools read. Rings
  * body.phone or the default — only ever a verified number (see
  * testCallBlocker); guarded by the tool secret and a 1/min limit.
+ * With body.dial === false nothing is dialled: the response carries the
+ * agent variables for a Sarvam verified-number test call, which needs no
+ * telephony connection of our own.
  */
 router.post(
   "/voice/test-call",
@@ -167,7 +170,8 @@ router.post(
   requireToolSecret,
   wrap(async (req, res) => {
     const phone = req.body?.phone ? String(req.body.phone) : undefined;
-    const blocker = testCallBlocker(phone);
+    const dial = req.body?.dial !== false;
+    const blocker = testCallBlocker(phone, { dial });
     if (blocker) return res.status(503).json({ error: "not_configured", detail: blocker });
 
     const waitMs = lastTestCallAt + TEST_CALL_COOLDOWN_MS - Date.now();
@@ -176,7 +180,15 @@ router.post(
     }
     lastTestCallAt = Date.now();
 
-    const { booking, call } = await placeTestPickupCall({ io: getIO(), redis: getRedisClient(), phone });
+    const { booking, call, variables } = await placeTestPickupCall({
+      io: getIO(),
+      redis: getRedisClient(),
+      phone,
+      dial,
+    });
+    if (!dial) {
+      return res.json({ placed: false, callId: String(call._id), bookingId: String(booking._id), agentVariables: variables });
+    }
     const placed = call?.channel === "sarvam" && !!call.sarvamAttemptId;
     res.status(placed ? 200 : 502).json({
       placed,

@@ -13,6 +13,7 @@ import Booking from "../../models/Booking.js";
 import Driver from "../../models/Driver.js";
 import User from "../../models/User.js";
 import Vehicle from "../../models/Vehicle.js";
+import VoiceCall from "../../models/VoiceCall.js";
 import {
   allowedNumbers,
   isSarvamConfigured,
@@ -31,6 +32,7 @@ const DRIVE_TICK_MS = 3000;
 const DRIVE_SPEED_MPS = 5.5; // ~20 km/h city traffic
 const DRIVE_MAX_MS = 10 * 60 * 1000;
 const STOP_SHORT_METERS = 60; // park just before pickup instead of arriving
+const UNDIALLED_CALL_TTL_MS = 15 * 60 * 1000;
 
 let activeDrive = null;
 
@@ -160,8 +162,10 @@ function verifiedNumbers() {
   return [...new Set([test, ...(allowedNumbers() || [])].filter(Boolean))];
 }
 
-/** Why a test call to `phone` (or the default) can't be placed, or null. */
-export function testCallBlocker(phone) {
+/** Why a test call to `phone` (or the default) can't be placed, or null.
+ * With dial=false nothing is dialled, so nothing needs configuring. */
+export function testCallBlocker(phone, { dial = true } = {}) {
+  if (!dial) return null;
   const numbers = verifiedNumbers();
   if (!numbers.length) {
     return "Set VOICE_TEST_NUMBER or VOICE_ALLOWED_NUMBERS (test calls only ring verified numbers)";
@@ -176,19 +180,58 @@ export function testCallBlocker(phone) {
 }
 
 /**
- * Creates the fake booking (with a freshly named driver), parks the driver
- * ~1.5 km from pickup, dials `phone` (default: the first verified number)
- * and, unless `drive` is false, starts the driver moving.
- * Resolves to { booking, call }.
+ * A ringing Sarvam VoiceCall that we don't dial ourselves: Sarvam's own
+ * verified-number test call dials it with these agent variables (no
+ * telephony connection needed). No end-of-call webhook comes back for
+ * such a call, so it closes itself and the tools stop accepting it.
  */
-export async function placeTestPickupCall({ io = null, redis, phone, drive = true }) {
-  const blocker = testCallBlocker(phone);
+async function createUndialledCall({ booking, customer, driver, vehicle }) {
+  const call = await VoiceCall.create({
+    bookingId: booking._id,
+    userId: customer._id,
+    driverId: driver._id,
+    status: "ringing",
+    channel: "sarvam",
+    callType: "pickup",
+    triggerDistanceM: 1500,
+    triggerEtaMinutes: 5,
+    retryCount: 0,
+  });
+  setTimeout(() => {
+    VoiceCall.updateOne(
+      { _id: call._id, status: { $in: ["ringing", "active"] } },
+      { $set: { status: "completed", endedAt: new Date() } }
+    ).catch((err) => console.error("[test-call] closing undialled call failed:", err.message));
+  }, UNDIALLED_CALL_TTL_MS).unref?.();
+
+  const variables = {
+    callId: String(call._id),
+    bookingId: String(booking._id),
+    driverName: driver.name.split(" ")[0],
+    vehicleNo: vehicle.numberPlate,
+    etaMinutes: "5",
+  };
+  return { call, variables };
+}
+
+/**
+ * Creates the fake booking (with a freshly named driver), parks the driver
+ * ~1.5 km from pickup and, unless `drive` is false, starts it moving.
+ * dial=true rings `phone` (default: the first verified number) through our
+ * Sarvam outbound path; dial=false only creates the call and returns the
+ * agent variables for Sarvam's own test call to use.
+ * Resolves to { booking, call, variables? }.
+ */
+export async function placeTestPickupCall({ io = null, redis, phone, drive = true, dial = true }) {
+  const blocker = testCallBlocker(phone, { dial });
   if (blocker) throw new Error(blocker);
 
   const { customer, driver, vehicle } = await findOrCreateFixtures();
-  // The fake customer "is" the verified number being rung.
-  customer.phone = normalizePhone(phone) || verifiedNumbers()[0];
-  await customer.save();
+  if (dial) {
+    // The fake customer "is" the verified number being rung.
+    customer.phone = normalizePhone(phone) || verifiedNumbers()[0];
+    await customer.save();
+  }
   driver.name = botName();
   await driver.save();
   const booking = await Booking.create({
@@ -205,6 +248,12 @@ export async function placeTestPickupCall({ io = null, redis, phone, drive = tru
   });
 
   await writeLocation(redis, driver._id, DRIVER_AT, 0);
+
+  if (!dial) {
+    const { call, variables } = await createUndialledCall({ booking, customer, driver, vehicle });
+    if (drive) await driveTowardsPickup(redis, driver._id);
+    return { booking, call, variables };
+  }
 
   const call = await startPickupCall({
     io,
