@@ -21,6 +21,9 @@ const FILLER_MAX_M = 1200;
 const BOT_MIN_M = 1500;
 const BOT_MAX_M = 2500;
 const ENSURE_LOCK_SEC = 15;
+// Moving the pin around must not mint drivers without bound.
+const MAX_FILLERS_PER_USER_PER_HOUR = 20;
+const MAX_FILLERS_TOTAL = 3000;
 
 const FILLER_NAMES = [
   "Arjun Mehra", "Sunil Yadav", "Pooja Rawat", "Imran Khan", "Vivek Tiwari",
@@ -131,7 +134,7 @@ async function readyBot(bot, vehicleType, near) {
 }
 
 /** Tops the area up to MIN_NEARBY available drivers of this type. */
-async function ensureFillers(vehicleType, near) {
+async function ensureFillers(vehicleType, near, { redis, userId }) {
   const nearby = await Driver.aggregate([
     {
       $geoNear: {
@@ -146,8 +149,16 @@ async function ensureFillers(vehicleType, near) {
     { $match: { "v.type": vehicleType } },
     { $count: "n" },
   ]);
-  const missing = MIN_NEARBY - (nearby[0]?.n || 0);
+  let missing = MIN_NEARBY - (nearby[0]?.n || 0);
   if (missing <= 0) return 0;
+
+  const quotaKey = `demo:fillers:${userId}`;
+  const used = Number(await redis.get(quotaKey)) || 0;
+  missing = Math.min(missing, MAX_FILLERS_PER_USER_PER_HOUR - used);
+  if (missing <= 0 || (await Driver.countDocuments({ demo: "filler" })) >= MAX_FILLERS_TOTAL) {
+    return 0;
+  }
+  await redis.multi().incrby(quotaKey, missing).expire(quotaKey, 3600).exec();
 
   const adminId = await demoAdminId();
   for (let i = 0; i < missing; i += 1) {
@@ -191,7 +202,7 @@ export async function ensureDemoFleet({ redis, userId, latitude, longitude, vehi
   if (!lock) return;
 
   const near = { lat: latitude, lng: longitude };
-  const added = await ensureFillers(vehicleType, near);
+  const added = await ensureFillers(vehicleType, near, { redis, userId });
   const bot = await getOrCreateBot(userId, vehicleType, near);
   await readyBot(bot, vehicleType, near);
   if (added) console.log(`Demo: added ${added} ${vehicleType} driver(s) near ${latitude},${longitude}`);

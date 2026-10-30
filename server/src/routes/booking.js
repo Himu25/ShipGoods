@@ -10,10 +10,14 @@ import {
 } from "../middleware/index.js";
 import getRedisClient from "../redisClient.js";
 import { cacheActiveTrip, clearActiveTrip } from "../services/voice/arrivalDetector.js";
-import { pickupLatLng } from "../services/voice/geo.js";
+import { haversineMeters, pickupLatLng } from "../services/voice/geo.js";
 import { scheduleBotForBooking } from "../services/demo/botDriver.js";
 
 const router = express.Router();
+
+// Offers a driver can see: recent and within reach of where they are.
+const PENDING_MAX_AGE_MS = 15 * 60 * 1000;
+const PENDING_RADIUS_M = 15000;
 
 // Statuses a driver moves a booking through after accepting it.
 const DRIVER_STATUSES = ["arrived", "collected", "completed", "cancelled"];
@@ -46,10 +50,23 @@ router.get(
   requireDriver,
   async (req, res) => {
     try {
-      const bookings = await Booking.find({ status: "pending" })
+      const driver = await Driver.findById(req.driverId).select("currentLocation").lean();
+      const [lng, lat] = driver?.currentLocation?.coordinates || [];
+      const recent = await Booking.find({
+        status: "pending",
+        isScheduled: { $ne: true },
+        createdAt: { $gte: new Date(Date.now() - PENDING_MAX_AGE_MS) },
+      })
         .sort({ createdAt: -1 })
-        .limit(10)
+        .limit(50)
         .lean();
+      // Booking.src is [lat, lng] (not GeoJSON), so distance is filtered here.
+      const bookings = recent
+        .filter((b) => {
+          const p = pickupLatLng(b.src);
+          return p && Number.isFinite(lat) && haversineMeters(lat, lng, p.lat, p.lng) <= PENDING_RADIUS_M;
+        })
+        .slice(0, 10);
       res.status(200).json({ bookings });
     } catch (error) {
       console.error("Pending bookings error:", error.message);

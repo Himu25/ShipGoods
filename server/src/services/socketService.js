@@ -20,6 +20,7 @@ const LOCATION_TTL_SEC = 120; // no push in 2 min -> treat the driver as gone da
 const MAX_JUMP_METERS = 5000; // implausible for one tick
 const RECENT_WINDOW_MS = 10000; // only enforce the jump check vs a recent point
 const MONGO_PERSIST_INTERVAL_SEC = 10; // live position lives in Redis; Mongo only needs it for $geoNear
+const MIN_LOCATION_INTERVAL_MS = 250; // drop floods; real apps send ~1/s
 
 function haversineMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000;
@@ -223,6 +224,11 @@ const initializeSocket = (server, redisClient, corsOrigin = "*") => {
     socket.on("driverLocationUpdate", async ({ latitude, longitude, heading } = {}) => {
       if (socket.data.role !== "driver" || !socket.data.driverId) return;
       const driverId = socket.data.driverId;
+
+      // Every update costs several Redis/Mongo calls; ignore a flood.
+      const now = Date.now();
+      if (now - (socket.data.lastLocationAt || 0) < MIN_LOCATION_INTERVAL_MS) return;
+      socket.data.lastLocationAt = now;
 
       if (!isValidCoordinate(latitude, longitude)) {
         console.warn(

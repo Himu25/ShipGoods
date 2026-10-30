@@ -261,6 +261,10 @@ async function main() {
     }, TICK_MS);
   });
 
+  // Let the final "at the pin" update flush before hanging up; closing
+  // straight after emit can drop it, leaving the server's last position
+  // just outside the 30 m arrival radius.
+  await new Promise((r) => setTimeout(r, 2000));
   socket.close();
   redis.disconnect();
   await mongoose.disconnect();

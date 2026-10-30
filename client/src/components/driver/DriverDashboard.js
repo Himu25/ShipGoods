@@ -197,6 +197,9 @@ const DriverDashboard = ({ driverId, token }) => {
   const socketRef = useRef(null);
   const acceptLock = useRef(false);
   const driveTimer = useRef(null);
+  // Offers this driver declined; the pending poll and socket pushes would
+  // otherwise re-offer the same booking every few seconds.
+  const declinedIds = useRef(new Set());
   const router = useRouter();
   const pathname = usePathname();
 
@@ -240,6 +243,7 @@ const DriverDashboard = ({ driverId, token }) => {
 
         socket.on("pickupRequested", (bookingData) => {
           console.log("Trip offer received", bookingData?._id);
+          if (declinedIds.current.has(String(bookingData?._id))) return;
           setIncoming((current) => current || bookingData);
           acceptLock.current = false;
           setAccepting(false);
@@ -298,7 +302,9 @@ const DriverDashboard = ({ driverId, token }) => {
         const res = await axios.get(
           `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/booking/pending`
         );
-        const next = res.data?.bookings?.[0];
+        const next = res.data?.bookings?.find(
+          (b) => !declinedIds.current.has(String(b._id))
+        );
         if (next?._id) {
           setIncoming(next);
           acceptLock.current = false;
@@ -380,13 +386,9 @@ const DriverDashboard = ({ driverId, token }) => {
           clearInterval(driveTimer.current);
           publish(destLat, destLng, next.heading);
           setEnRoute(false);
-          // Free driver again so they stay in nearby list for the next request
-          axios
-            .post(
-              `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/booking/free-driver`,
-              { driverId }
-            )
-            .catch(() => {});
+          // The driver stays booked until the trip is completed or
+          // cancelled (that frees them server-side); freeing here let a
+          // driver at a pickup be offered a second trip.
           toast.success("Arrived at pickup");
         }
       }, TICK_MS);
@@ -442,6 +444,7 @@ const DriverDashboard = ({ driverId, token }) => {
 
   const rejectBooking = useCallback(
     (bookingDetails) => {
+      if (bookingDetails?._id) declinedIds.current.add(String(bookingDetails._id));
       socketRef.current?.emit("rejectBooking", {
         driverId,
         bookingId: bookingDetails?._id,
@@ -469,12 +472,13 @@ const DriverDashboard = ({ driverId, token }) => {
   useEffect(() => {
     if (!incoming || accepting) return;
     if (secondsLeft <= 0) {
-      acceptBooking(incoming);
+      // An unanswered offer is declined, never accepted on the driver's behalf.
+      rejectBooking(incoming);
       return;
     }
     const t = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
     return () => clearTimeout(t);
-  }, [incoming, secondsLeft, accepting, acceptBooking]);
+  }, [incoming, secondsLeft, accepting, rejectBooking]);
 
   useEffect(() => {
     return () => {

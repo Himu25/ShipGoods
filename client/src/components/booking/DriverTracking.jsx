@@ -209,6 +209,7 @@ function SmoothDriverMarker({ target, icon, posRef }) {
       toHeading: heading,
       start: now,
       duration: snap ? 0 : GLIDE_MS,
+      applied: false,
     };
   }, [target?.latitude, target?.longitude, target?.heading]);
 
@@ -216,7 +217,9 @@ function SmoothDriverMarker({ target, icon, posRef }) {
     const tick = (now) => {
       const s = state.current;
       const marker = markerRef.current;
-      if (s && marker) {
+      // Done gliding and already placed: nothing to redraw this frame.
+      const settled = s && s.duration >= 0 && now - s.start > s.duration && s.applied;
+      if (s && marker && !settled) {
         const t =
           s.duration <= 0
             ? 1
@@ -229,6 +232,7 @@ function SmoothDriverMarker({ target, icon, posRef }) {
         const el = marker.getElement?.();
         const car = el?.querySelector?.(".sg-live-car");
         if (car) car.style.setProperty("--h", `${s.heading}deg`);
+        s.applied = t >= 1;
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -282,13 +286,22 @@ function RemainingRoute({ route, posRef, styles, onOffRoute }) {
   const lineRefs = useRef([]);
   const hint = useRef(0);
   const lastReroute = useRef(0);
+  const lastDrawn = useRef(null);
 
   useEffect(() => {
     hint.current = 0;
+    lastDrawn.current = null;
     let raf;
     const tick = () => {
       const pos = posRef.current;
-      if (pos && route?.length > 1) {
+      // Redraw only when the car actually moved (not 60x/s while parked).
+      const moved =
+        pos &&
+        (!lastDrawn.current ||
+          Math.abs(lastDrawn.current.lat - pos.lat) > 1e-6 ||
+          Math.abs(lastDrawn.current.lng - pos.lng) > 1e-6);
+      if (moved && route?.length > 1) {
+        lastDrawn.current = { lat: pos.lat, lng: pos.lng };
         const hit = projectOnRoute(route, pos.lat, pos.lng, hint.current);
         hint.current = hit.index;
         const ahead = [[pos.lat, pos.lng], hit.point, ...route.slice(hit.index + 1)];
