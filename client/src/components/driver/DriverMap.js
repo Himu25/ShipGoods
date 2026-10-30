@@ -1,21 +1,18 @@
 "use client";
-import React, { useEffect, useRef, useState } from "react";
-import { MapContainer, Marker, TileLayer, useMap } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import "leaflet-routing-machine/dist/leaflet-routing-machine.css";
-import L from "leaflet";
-import "leaflet-routing-machine";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Marker } from "react-leaflet";
 import { Steps, Button, message, Popconfirm } from "antd";
 import axios from "axios";
 import { useRouter } from "next/navigation";
 import { io } from "socket.io-client";
-import MapResizeFix from "../MapResizeFix";
+import BaseMap from "../map/BaseMap";
+import { RemainingRoute, SmoothMarker, useRoadRoute } from "../map/LiveLayers";
+import { bearingDegrees } from "@/utils/geo";
 import {
   pickupIcon,
   dropoffIcon,
-  driverIcon,
+  liveDriverIcon,
   DEFAULT_CENTER,
-  MAP_TILE,
   ROUTE_LINE_STYLES,
 } from "@/utils/mapIcons";
 
@@ -29,69 +26,17 @@ const validStatuses = [
   "completed",
 ];
 
-function DriverRouting({ currentLocation, pickupLocation, dropoffLocation, status }) {
-  const map = useMap();
-  const controlRef = useRef(null);
-
-  useEffect(() => {
-    if (!currentLocation || !pickupLocation || !dropoffLocation) return;
-
-    let waypoints = [];
-    if (status === "accepted" || status === "arrived") {
-      waypoints = [
-        L.latLng(currentLocation.lat, currentLocation.lng),
-        L.latLng(pickupLocation.lat, pickupLocation.lng),
-      ];
-    } else if (status === "collected") {
-      waypoints = [
-        L.latLng(currentLocation.lat, currentLocation.lng),
-        L.latLng(dropoffLocation.lat, dropoffLocation.lng),
-      ];
-    }
-
-    if (controlRef.current) {
-      map.removeControl(controlRef.current);
-      controlRef.current = null;
-    }
-
-    if (waypoints.length < 2) return;
-
-    const control = L.Routing.control({
-      waypoints,
-      routeWhileDragging: false,
-      addWaypoints: false,
-      draggableWaypoints: false,
-      show: false,
-      createMarker: () => null,
-      lineOptions: { styles: ROUTE_LINE_STYLES },
-    }).addTo(map);
-
-    control.on("routesfound", (e) => {
-      map.fitBounds(L.latLngBounds(e.routes[0].coordinates), {
-        padding: [40, 40],
-      });
-    });
-
-    controlRef.current = control;
-    return () => {
-      if (controlRef.current) {
-        map.removeControl(controlRef.current);
-        controlRef.current = null;
-      }
-    };
-  }, [map, currentLocation, pickupLocation, dropoffLocation, status]);
-
-  return null;
-}
-
 const DriverMap = ({ booking, token }) => {
   const [currentStatus, setCurrentStatus] = useState(0);
   const [pickupLocation, setPickupLocation] = useState(null);
   const [dropoffLocation, setDropoffLocation] = useState(null);
   const [currentLocation, setCurrentLocation] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [rerouteTick, setRerouteTick] = useState(0);
   const router = useRouter();
   const socketRef = useRef(null);
+  const carPosRef = useRef(null);
+  const requestReroute = useCallback(() => setRerouteTick((n) => n + 1), []);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -137,8 +82,18 @@ const DriverMap = ({ booking, token }) => {
 
     const watchId = navigator.geolocation.watchPosition(
       (position) => {
-        const { latitude, longitude } = position.coords;
-        setCurrentLocation({ lat: latitude, lng: longitude });
+        const { latitude, longitude, heading } = position.coords;
+        // Phones only report heading while moving; otherwise derive it.
+        setCurrentLocation((prev) => ({
+          lat: latitude,
+          lng: longitude,
+          heading:
+            typeof heading === "number" && !Number.isNaN(heading)
+              ? heading
+              : prev && (prev.lat !== latitude || prev.lng !== longitude)
+                ? bearingDegrees(prev.lat, prev.lng, latitude, longitude)
+                : prev?.heading ?? 0,
+        }));
         socketRef.current?.emit("driverLocationUpdate", {
           driverId: driverId._id,
           latitude,
@@ -211,6 +166,35 @@ const DriverMap = ({ booking, token }) => {
   const statusKey = validStatuses[currentStatus];
   const collectedIndex = validStatuses.indexOf("collected");
 
+  // Route to pickup while heading there, to drop-off once collected.
+  const target =
+    statusKey === "accepted" || statusKey === "arrived"
+      ? pickupLocation
+      : statusKey === "collected"
+        ? dropoffLocation
+        : null;
+  const targetLatLng = target ? [target.lat, target.lng] : null;
+  const carLatLng = currentLocation ? [currentLocation.lat, currentLocation.lng] : null;
+  const route = useRoadRoute(carLatLng, targetLatLng, `${statusKey}|${rerouteTick}`);
+  const carTarget = useMemo(
+    () =>
+      currentLocation && {
+        latitude: currentLocation.lat,
+        longitude: currentLocation.lng,
+        heading: currentLocation.heading,
+      },
+    [currentLocation]
+  );
+
+  const fitPoints = useMemo(() => {
+    const pts = route?.points?.length > 1 ? [...route.points] : [];
+    if (carLatLng) pts.push(carLatLng);
+    if (targetLatLng) pts.push(targetLatLng);
+    return pts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route, !!carLatLng, targetLatLng?.[0], targetLatLng?.[1]]);
+  const fitKey = `${statusKey}|${carLatLng ? 1 : 0}|${route ? 1 : 0}`;
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-0 md:gap-4 h-[calc(100vh-var(--nav-height))] bg-slate-100 p-0 md:p-4">
       <div className="col-span-1 bg-white p-6 md:rounded-2xl md:shadow-sm border-b md:border border-slate-200 flex flex-col">
@@ -251,31 +235,22 @@ const DriverMap = ({ booking, token }) => {
       </div>
 
       <div className="col-span-2 relative min-h-[50vh] md:min-h-0 md:rounded-2xl overflow-hidden shadow-sm border border-slate-200">
-        <MapContainer
-          center={
-            currentLocation
-              ? [currentLocation.lat, currentLocation.lng]
-              : DEFAULT_CENTER
-          }
+        <BaseMap
+          center={carLatLng || DEFAULT_CENTER}
           zoom={13}
-          scrollWheelZoom
-          style={{ height: "100%", width: "100%" }}
-          className="h-full w-full sg-map"
+          fitPoints={fitPoints}
+          fitKey={fitKey}
+          fitPadding={56}
         >
-          <TileLayer url={MAP_TILE.url} attribution={MAP_TILE.attribution} />
-          <MapResizeFix />
-          <DriverRouting
-            currentLocation={currentLocation}
-            pickupLocation={pickupLocation}
-            dropoffLocation={dropoffLocation}
-            status={statusKey}
-          />
-          {currentLocation && (
-            <Marker
-              position={[currentLocation.lat, currentLocation.lng]}
-              icon={driverIcon}
+          {statusKey !== "arrived" && (
+            <RemainingRoute
+              route={route?.points}
+              posRef={carPosRef}
+              styles={ROUTE_LINE_STYLES}
+              onOffRoute={requestReroute}
             />
           )}
+          <SmoothMarker target={carTarget} icon={liveDriverIcon} posRef={carPosRef} />
           {pickupLocation && currentStatus >= 1 && (
             <Marker
               position={[pickupLocation.lat, pickupLocation.lng]}
@@ -288,7 +263,7 @@ const DriverMap = ({ booking, token }) => {
               icon={dropoffIcon}
             />
           )}
-        </MapContainer>
+        </BaseMap>
       </div>
     </div>
   );

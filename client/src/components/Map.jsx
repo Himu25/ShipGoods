@@ -1,11 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, Marker, TileLayer, Popup, useMap } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import "leaflet-routing-machine/dist/leaflet-routing-machine.css";
-import L from "leaflet";
-import "leaflet-routing-machine";
+import { Marker, Popup } from "react-leaflet";
 import axios from "axios";
 import { AutoComplete, Select, Checkbox, DatePicker, Spin } from "antd";
 import {
@@ -15,7 +11,8 @@ import {
   ClockCircleOutlined,
 } from "@ant-design/icons";
 import NearByCard from "./NearByCard";
-import MapResizeFix from "./MapResizeFix";
+import BaseMap from "./map/BaseMap";
+import { RouteLine, useRoadRoute } from "./map/LiveLayers";
 import {
   pickupIcon,
   dropoffIcon,
@@ -25,124 +22,19 @@ import {
   CURRENT_LOCATION_ZOOM,
   INDIA_BOUNDS,
   isInIndia,
-  MAP_TILE,
   ROUTE_LINE_STYLES,
 } from "@/utils/mapIcons";
 
 const { Option } = Select;
 
-function MapViewSync({ currentLocation, pickupLocation, nearbyDrivers }) {
-  const map = useMap();
-  const lastFitKey = useRef(null);
-
-  useEffect(() => {
-    const points = [];
-
-    if (currentLocation) {
-      points.push([currentLocation.lat, currentLocation.lng]);
-    }
-    if (pickupLocation) {
-      points.push([pickupLocation.lat, pickupLocation.lng]);
-    }
-
-    (nearbyDrivers || []).forEach((driver) => {
-      const coords = driver.currentLocation?.coordinates;
-      if (coords?.length >= 2) {
-        const [lng, lat] = coords;
-        points.push([lat, lng]);
-      }
-    });
-
-    if (points.length === 0) return;
-
-    const key = [
-      points.length,
-      ...(nearbyDrivers || []).map((d) => d._id),
-      currentLocation
-        ? `${currentLocation.lat.toFixed(4)},${currentLocation.lng.toFixed(4)}`
-        : "",
-      pickupLocation
-        ? `${pickupLocation.lat.toFixed(4)},${pickupLocation.lng.toFixed(4)}`
-        : "",
-    ].join("|");
-
-    if (lastFitKey.current === key) return;
-    lastFitKey.current = key;
-
-    if (points.length === 1) {
-      map.setView(points[0], CURRENT_LOCATION_ZOOM, { animate: true });
-      return;
-    }
-
-    const bounds = L.latLngBounds(points);
-    map.fitBounds(bounds, {
-      padding: [56, 56],
-      maxZoom: 15,
-      animate: true,
-    });
-  }, [map, currentLocation, pickupLocation, nearbyDrivers]);
-
-  return null;
+/** Stable pseudo-heading per driver, so parked cars face varied ways. */
+function headingFor(id = "") {
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  return Math.abs(hash) % 360;
 }
 
-function RoutingMachine({ pickup, dropoff, onRouteFound }) {
-  const map = useMap();
-  const controlRef = useRef(null);
-  const onRouteFoundRef = useRef(onRouteFound);
-  onRouteFoundRef.current = onRouteFound;
-
-  useEffect(() => {
-    if (!pickup || !dropoff) {
-      if (controlRef.current) {
-        map.removeControl(controlRef.current);
-        controlRef.current = null;
-      }
-      return;
-    }
-
-    if (controlRef.current) {
-      map.removeControl(controlRef.current);
-      controlRef.current = null;
-    }
-
-    const control = L.Routing.control({
-      waypoints: [
-        L.latLng(pickup.lat, pickup.lng),
-        L.latLng(dropoff.lat, dropoff.lng),
-      ],
-      routeWhileDragging: false,
-      addWaypoints: false,
-      draggableWaypoints: false,
-      fitRoute: false,
-      show: false,
-      createMarker: () => null,
-      lineOptions: {
-        styles: ROUTE_LINE_STYLES,
-        extendToWaypoints: true,
-        missingRouteTolerance: 0,
-      },
-    }).addTo(map);
-
-    control.on("routesfound", (e) => {
-      const route = e.routes[0];
-      onRouteFoundRef.current?.({
-        distance: (route.summary.totalDistance / 1000).toFixed(2),
-        duration: (route.summary.totalTime / 60).toFixed(2),
-      });
-    });
-
-    controlRef.current = control;
-
-    return () => {
-      if (controlRef.current) {
-        map.removeControl(controlRef.current);
-        controlRef.current = null;
-      }
-    };
-  }, [map, pickup, dropoff]);
-
-  return null;
-}
+const latLngKey = (p) => (p ? `${p.lat.toFixed(5)},${p.lng.toFixed(5)}` : "");
 
 const LeafletMap = () => {
   const [currentLocation, setCurrentLocation] = useState(null);
@@ -150,10 +42,6 @@ const LeafletMap = () => {
   const [dropoffLocation, setDropoffLocation] = useState(null);
   const [suggestionsPickup, setSuggestionsPickup] = useState([]);
   const [suggestionsDropoff, setSuggestionsDropoff] = useState([]);
-  const [routeDetails, setRouteDetails] = useState({
-    distance: 0,
-    duration: 0,
-  });
   const [carType, setCarType] = useState("car");
   const [pickupText, setPickupText] = useState("");
   const [dropoffText, setDropoffText] = useState("");
@@ -320,10 +208,46 @@ const LeafletMap = () => {
     };
   }, [pickupLocation, carType]);
 
-  const mapCenter = useMemo(() => {
-    if (currentLocation) return [currentLocation.lat, currentLocation.lng];
-    return DEFAULT_CENTER;
-  }, [currentLocation]);
+  const pickupLatLng = useMemo(
+    () => pickupLocation && [pickupLocation.lat, pickupLocation.lng],
+    [pickupLocation]
+  );
+  const dropoffLatLng = useMemo(
+    () => dropoffLocation && [dropoffLocation.lat, dropoffLocation.lng],
+    [dropoffLocation]
+  );
+  const route = useRoadRoute(pickupLatLng, dropoffLatLng, latLngKey(pickupLocation));
+  const routeDetails = {
+    distance: route?.distanceKm != null ? route.distanceKm.toFixed(2) : 0,
+    duration: route?.durationMin != null ? route.durationMin.toFixed(2) : 0,
+  };
+
+  const driverPoints = useMemo(
+    () =>
+      nearbyDrivers
+        .map((d) => d.currentLocation?.coordinates)
+        .filter((c) => c?.length >= 2)
+        .map(([lng, lat]) => [lat, lng]),
+    [nearbyDrivers]
+  );
+
+  // Frame the trip once it has a road; otherwise pickup + nearby cars;
+  // otherwise the user. GPS updates never refit (the key ignores them).
+  const { fitPoints, fitKey } = useMemo(() => {
+    if (route?.points?.length > 1) {
+      return { fitPoints: route.points, fitKey: `route|${latLngKey(pickupLocation)}|${latLngKey(dropoffLocation)}` };
+    }
+    if (pickupLatLng) {
+      return {
+        fitPoints: [pickupLatLng, ...driverPoints],
+        fitKey: `pickup|${latLngKey(pickupLocation)}|${nearbyDrivers.map((d) => d._id).join(",")}`,
+      };
+    }
+    if (currentLocation) {
+      return { fitPoints: [[currentLocation.lat, currentLocation.lng]], fitKey: "me" };
+    }
+    return { fitPoints: [], fitKey: "" };
+  }, [route, pickupLatLng, pickupLocation, dropoffLocation, driverPoints, nearbyDrivers, currentLocation]);
 
   const vehicleLabel = carType.charAt(0).toUpperCase() + carType.slice(1);
 
@@ -505,28 +429,19 @@ const LeafletMap = () => {
       </aside>
 
       <div className="relative flex-1 min-h-[52vh] lg:min-h-0 z-0">
-        <MapContainer
-          center={mapCenter}
+        <BaseMap
+          center={DEFAULT_CENTER}
           zoom={CURRENT_LOCATION_ZOOM}
           minZoom={5}
           maxBounds={INDIA_BOUNDS}
           maxBoundsViscosity={1.0}
-          scrollWheelZoom
-          className="h-full w-full sg-map"
-          style={{ height: "100%", width: "100%" }}
+          fitPoints={fitPoints}
+          fitKey={fitKey}
+          fitPadding={64}
+          fitMaxZoom={15}
+          singleZoom={CURRENT_LOCATION_ZOOM}
         >
-          <TileLayer url={MAP_TILE.url} attribution={MAP_TILE.attribution} />
-          <MapResizeFix />
-          <MapViewSync
-            currentLocation={currentLocation}
-            pickupLocation={pickupLocation}
-            nearbyDrivers={nearbyDrivers}
-          />
-          <RoutingMachine
-            pickup={pickupLocation}
-            dropoff={dropoffLocation}
-            onRouteFound={setRouteDetails}
-          />
+          <RouteLine points={route?.points} styles={ROUTE_LINE_STYLES} />
           {currentLocation && (
             <Marker
               position={[currentLocation.lat, currentLocation.lng]}
@@ -554,35 +469,38 @@ const LeafletMap = () => {
               <Marker
                 key={driver._id}
                 position={[lat, lng]}
-                icon={getVehicleIcon(type)}
+                icon={getVehicleIcon(type, headingFor(driver._id))}
               >
                 <Popup>
-                  <strong>{driver.name}</strong>
-                  <br />
-                  {type.charAt(0).toUpperCase() + type.slice(1)}
-                  {driver.vehicleDetails?.model
-                    ? ` · ${driver.vehicleDetails.model}`
-                    : ""}
-                  <br />
-                  {Number(driver.dist?.calculated ?? 0).toFixed(2)} km away
+                  <p className="m-0 font-semibold text-slate-900">
+                    {driver.demo === "bot" ? `🤖 ${driver.name}` : driver.name}
+                  </p>
+                  <p className="m-0 mt-0.5 text-xs text-slate-500">
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                    {driver.vehicleDetails?.model ? ` · ${driver.vehicleDetails.model}` : ""}
+                    {" · "}
+                    {Number(driver.dist?.calculated ?? 0).toFixed(2)} km away
+                  </p>
                 </Popup>
               </Marker>
             );
           })}
-        </MapContainer>
+        </BaseMap>
 
         {pickupLocation && nearbyDrivers.length > 0 && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center px-4 z-[500]">
-            <div className="rounded-full bg-white/95 shadow-lg border border-slate-200 px-4 py-2 text-sm text-slate-700">
-              Showing {nearbyDrivers.length} nearby {carType}
-              {nearbyDrivers.length === 1 ? "" : "s"} on map
+          <div className="pointer-events-none absolute inset-x-0 bottom-6 flex justify-center px-4 z-[500]">
+            <div className="sg-map-pill">
+              <span className="sg-map-pill__dot" style={{ "--dot": "#10b981" }} />
+              {nearbyDrivers.length} {carType}
+              {nearbyDrivers.length === 1 ? "" : "s"} nearby
             </div>
           </div>
         )}
 
         {!currentLocation && !locating && (
           <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center px-4 z-[500]">
-            <div className="rounded-full bg-white/95 shadow-lg border border-slate-200 px-4 py-2 text-sm text-slate-600">
+            <div className="sg-map-pill sg-map-pill--warn">
+              <span className="sg-map-pill__dot" />
               Allow location access to zoom to your position in India
             </div>
           </div>

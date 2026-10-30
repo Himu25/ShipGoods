@@ -1,0 +1,311 @@
+/* ── ShipGoods map look (every map goes through BaseMap) ─────────────── */
+
+.sg-map.leaflet-container {
+  /* Own stacking context, so Leaflet's panes (z 400+) stay under modals. */
+  z-index: 0;
+  /* Matches the basemap's land colour, so nothing flashes while it loads. */
+  background: #ebeae6;
+  font-family: inherit;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sg-map .maplibregl-canvas {
+  outline: none;
+}
+
+/* Floating glass controls */
+.sg-map .leaflet-control-zoom,
+.sg-map-fab {
+  border: none !important;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.06),
+    0 12px 28px -10px rgba(15, 23, 42, 0.35);
+}
+
+.sg-map .leaflet-control-zoom {
+  overflow: hidden;
+  margin: 0 16px 28px 0 !important;
+}
+
+.sg-map .leaflet-control-zoom a {
+  width: 40px !important;
+  height: 40px !important;
+  line-height: 40px !important;
+  font-size: 20px;
+  font-weight: 500;
+  color: #0f172a !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  transition: background-color 0.15s ease;
+}
+
+.sg-map .leaflet-control-zoom-in {
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08) !important;
+}
+
+.sg-map .leaflet-control-zoom a:hover {
+  background: rgba(15, 23, 42, 0.06) !important;
+}
+
+.sg-map .leaflet-control-zoom a.leaflet-disabled {
+  color: #cbd5e1 !important;
+}
+
+.sg-map-fab {
+  position: absolute;
+  right: 16px;
+  bottom: 120px;
+  z-index: 1000;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  color: #2563eb;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease, background-color 0.15s ease;
+}
+
+.sg-map-fab:hover {
+  background: #fff;
+}
+
+.sg-map-fab.is-hidden {
+  opacity: 0;
+  transform: translateY(6px) scale(0.9);
+  pointer-events: none;
+}
+
+.sg-map .leaflet-control-attribution {
+  margin: 0 !important;
+  padding: 2px 8px !important;
+  border-radius: 10px 0 0 0;
+  background: rgba(255, 255, 255, 0.78) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-size: 10px;
+  color: #64748b;
+}
+
+.sg-map .leaflet-control-attribution a {
+  color: #475569;
+}
+
+/* Popups */
+.sg-map .leaflet-popup-content-wrapper {
+  border-radius: 14px;
+  padding: 0;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.05),
+    0 18px 40px -12px rgba(15, 23, 42, 0.35);
+}
+
+.sg-map .leaflet-popup-content {
+  margin: 12px 14px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #0f172a;
+}
+
+.sg-map .leaflet-popup-tip {
+  box-shadow: none;
+}
+
+.sg-map .leaflet-popup-close-button {
+  top: 6px !important;
+  right: 6px !important;
+  color: #94a3b8 !important;
+}
+
+/* Status pills floating over a map */
+.sg-map-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.06),
+    0 12px 28px -10px rgba(15, 23, 42, 0.35);
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.sg-map-pill__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--dot, #2563eb);
+  box-shadow: 0 0 0 0 var(--dot, #2563eb);
+  animation: sg-dot-ping 1.8s ease-out infinite;
+}
+
+.sg-map-pill--warn {
+  --dot: #f59e0b;
+  color: #92400e;
+}
+
+@keyframes sg-dot-ping {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dot, #2563eb) 55%, transparent); }
+  100% { box-shadow: 0 0 0 8px transparent; }
+}
+
+/* ── Markers ──────────────────────────────────────────────────────────── */
+
+.sg-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.sg-marker svg {
+  display: block;
+  overflow: visible;
+}
+
+/* 3D pins: the pin drops in once; its ground shadow grows as it lands. */
+.sg-pin {
+  position: relative;
+  width: 44px;
+  height: 58px;
+}
+
+.sg-pin__body {
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 6px 5px rgba(15, 23, 42, 0.3));
+  animation: sg-pin-drop 0.55s cubic-bezier(0.22, 1.4, 0.36, 1) backwards;
+  transition: transform 0.2s ease;
+}
+
+.sg-pin__shadow {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 22px;
+  height: 7px;
+  margin-left: -11px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(15, 23, 42, 0.45) 0%, transparent 70%);
+  animation: sg-pin-shadow 0.55s ease-out backwards;
+}
+
+.leaflet-marker-icon:hover .sg-pin__body {
+  transform: translateY(-3px);
+}
+
+@keyframes sg-pin-drop {
+  0% { transform: translateY(-26px) scale(0.92); opacity: 0; }
+  55% { opacity: 1; }
+  100% { transform: none; }
+}
+
+@keyframes sg-pin-shadow {
+  0% { transform: scale(0.35); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+
+/* You-are-here dot */
+.sg-me {
+  position: relative;
+  width: 36px;
+  height: 36px;
+}
+
+.sg-me__pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: rgba(37, 99, 235, 0.28);
+  animation: sg-pulse 2s ease-out infinite;
+}
+
+.sg-me__dot {
+  position: absolute;
+  inset: 10px;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 30%, #93c5fd 0%, #2563eb 55%, #1d4ed8 100%);
+  border: 3px solid #fff;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.08),
+    0 3px 8px rgba(29, 78, 216, 0.5);
+}
+
+@keyframes sg-pulse {
+  0% { transform: scale(0.45); opacity: 0.9; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+
+/* Vehicles: the wrapper casts the shadow (fixed light from the top-left),
+   only the body rotates with --h. */
+.sg-veh {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter:
+    drop-shadow(1.5px 3px 2px rgba(15, 23, 42, 0.35))
+    drop-shadow(3px 8px 8px rgba(15, 23, 42, 0.18));
+  transition: transform 0.2s ease;
+}
+
+.sg-veh__body {
+  display: flex;
+  transform: rotate(var(--h, 0deg));
+  will-change: transform;
+}
+
+.sg-marker--vehicle:hover .sg-veh {
+  transform: scale(1.12);
+}
+
+.sg-veh--live {
+  pointer-events: none;
+}
+
+/* Showcase bot: pulsing violet halo and an upright robot badge. */
+.sg-veh__halo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.3) 0%, rgba(139, 92, 246, 0) 70%);
+  border: 2px solid rgba(139, 92, 246, 0.5);
+  animation: sg-pulse 1.8s ease-out infinite;
+}
+
+.sg-veh__badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #a78bfa, #6d28d9);
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(76, 29, 149, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sg-pin__body,
+  .sg-pin__shadow,
+  .sg-me__pulse,
+  .sg-veh__halo,
+  .sg-map-pill__dot {
+    animation: none;
+  }
+}
