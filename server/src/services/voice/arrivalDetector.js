@@ -5,7 +5,7 @@ import { haversineMeters, pickupLatLng } from "./geo.js";
 import { firstName } from "./guardrails.js";
 import { estimateRoute } from "../voiceAgent/tripService.js";
 import { ETA_GREETING_HI } from "../voiceAgent/guardrails.js";
-import { dialNumberFor, isSarvamConfigured, placeOutboundCall } from "../sarvam/outbound.js";
+import { dialNumberFor, isSarvamConfigured, placeOutboundCall, spokenPlate } from "../sarvam/outbound.js";
 
 export const ARRIVE_METERS = 30;
 // Only ask a routing API for an ETA once the driver is plausibly within
@@ -162,7 +162,7 @@ async function dialPickupCall(callId, { io, redis, etaMinutes }) {
     callId: String(call._id),
     bookingId: String(booking._id),
     driverName: booking.driverId?.name ? firstName(booking.driverId.name) : "",
-    vehicleNo: booking.vehicleId?.numberPlate || "",
+    vehicleNo: spokenPlate(booking.vehicleId?.numberPlate),
     etaMinutes: eta,
   };
 

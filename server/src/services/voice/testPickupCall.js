@@ -19,6 +19,7 @@ import {
   isSarvamConfigured,
   missingSarvamConfig,
   normalizePhone,
+  spokenPlate,
 } from "../sarvam/outbound.js";
 import { botName } from "../demo/demoFleet.js";
 import { estimateRoute } from "../voiceAgent/tripService.js";
@@ -209,7 +210,7 @@ async function createUndialledCall({ booking, customer, driver, vehicle, etaMinu
     callId: String(call._id),
     bookingId: String(booking._id),
     driverName: driver.name.split(" ")[0],
-    vehicleNo: vehicle.numberPlate,
+    vehicleNo: spokenPlate(vehicle.numberPlate),
     etaMinutes: String(etaMinutes),
   };
   return { call, variables };
