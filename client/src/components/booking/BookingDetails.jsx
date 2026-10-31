@@ -218,7 +218,8 @@ const BookingPage = ({ booking }) => {
             <strong>Distance:</strong> {currentBooking.distance} km
           </p>
           <p>
-            <strong>Duration:</strong> {currentBooking.duration} minutes
+            {/* Stored in seconds (NearByCard sends totalTime * 60). */}
+            <strong>Duration:</strong> {Math.round(Number(currentBooking.duration) / 60)} minutes
           </p>
           <p>
             <strong>Price:</strong> ₹ {currentBooking.price}
