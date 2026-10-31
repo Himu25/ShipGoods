@@ -2,10 +2,10 @@
   "_about": "Portable copy of the Sarvam voice agent 'ShipGoods Pickup Assistant' (exported from version 4, 2026-10-31). Prompt is in prompt.md. Placeholders: ${API_BASE_URL} = public URL of the ShipGoods API (e.g. https://shipgoods-api.onrender.com), ${SARVAM_TOOL_SECRET} = same value as SARVAM_TOOL_SECRET on that server. Account-specific ids (org, workspace, tool ids, voice internal_id) are not included; the voice is identified by name and voice_id because internal ids can differ per workspace.",
   "name": "ShipGoods Pickup Assistant",
   "voice": {
-    "display_name": "Shubh",
-    "voice_id": "Viraj",
-    "model": "Sarvam TTS v3.1 (Pro, HD)",
-    "why": "Clear, non-breathy voice; the earlier 'Shubh - E-commerce Voice' is hushed and sounds unclear on phone lines."
+    "display_name": "Ritu - Conversational Voice",
+    "voice_id": "Shivani_Shekhar_Deshmukh-Hindi_Conversation",
+    "model": "Sarvam TTS v4",
+    "why": "Female persona 'Ritu'. Sarvam describes it as natural, high and lively, best for back-and-forth conversation; not hushed or breathy, so it stays clear on phone lines."
   },
   "config": {
     "channel_type": "v2v",
@@ -23,8 +23,8 @@
     },
     "text_to_speech_config": {
       "config_version": "2.0",
-      "internal_id": "<look up 'Shubh' (voice_id Viraj) with list_voices in the target workspace>",
-      "speech_settings": { "pace": 0.95 }
+      "internal_id": "<look up voice_id Shivani_Shekhar_Deshmukh-Hindi_Conversation with list_voices in the target workspace>",
+      "speech_settings": { "pace": 1.0 }
     },
     "interaction_config": {
       "allow_interrupt_during_playback": false,
@@ -44,8 +44,8 @@
     },
     "output_config": { "output_type": "audio", "background_sound": { "enabled": false } },
     "intro_message_config": {
-      "audio": "Namaste, this is Shubh from ShipGoods. Your driver {{driverName}} will reach your pickup point in about {{etaMinutes}} minutes, vehicle number {{vehicleNo}}. Please keep your goods ready.",
-      "hindi": "नमस्ते, मैं शुभ, ShipGoods से बोल रहा हूँ। आपके ड्राइवर {{driverName}} लगभग {{etaMinutes}} मिनट में पिकअप पर पहुँच रहे हैं, गाड़ी नंबर {{vehicleNo}}। कृपया अपना सामान तैयार रखिए।"
+      "audio": "Namaste, this is Ritu from ShipGoods. Your driver {{driverName}} will reach your pickup point in about {{etaMinutes}} minutes, vehicle number {{vehicleNo}}. Please keep your goods ready.",
+      "hindi": "नमस्ते, मैं ऋतु, ShipGoods से बोल रही हूँ। आपके ड्राइवर {{driverName}} लगभग {{etaMinutes}} मिनट में पिकअप पर पहुँच रहे हैं, गाड़ी नंबर {{vehicleNo}}। कृपया अपना सामान तैयार रखिए।"
     },
     "llm": {
       "temperature": 0.5,

@@ -19,7 +19,7 @@ recreating it:
 
 1. Create an agent named "ShipGoods Pickup Assistant" (single-prompt template).
 2. Apply `config` from `agent.json`. Look up the voice with `list_voices`:
-   "Shubh", voice_id `Viraj`, and use its `internal_id`.
+   "Ritu - Conversational Voice", voice_id `Shivani_Shekhar_Deshmukh-Hindi_Conversation`, and use its `internal_id`.
 3. Set the prompt to `prompt.md`.
 4. Create the 8 tools from `tools` (with `tool_defaults`), then enable them along
    with the core tools listed in `core_tools`.
