@@ -1,0 +1,185 @@
+{
+  "_about": "Portable copy of the Sarvam voice agent 'ShipGoods Pickup Assistant' (exported from version 4, 2026-10-31). Prompt is in prompt.md. Placeholders: ${API_BASE_URL} = public URL of the ShipGoods API (e.g. https://shipgoods-api.onrender.com), ${SARVAM_TOOL_SECRET} = same value as SARVAM_TOOL_SECRET on that server. Account-specific ids (org, workspace, tool ids, voice internal_id) are not included; the voice is identified by name and voice_id because internal ids can differ per workspace.",
+  "name": "ShipGoods Pickup Assistant",
+  "voice": {
+    "display_name": "Shubh",
+    "voice_id": "Viraj",
+    "model": "Sarvam TTS v3.1 (Pro, HD)",
+    "why": "Clear, non-breathy voice; the earlier 'Shubh - E-commerce Voice' is hushed and sounds unclear on phone lines."
+  },
+  "config": {
+    "channel_type": "v2v",
+    "language_config": {
+      "initial_language_name": "Hindi",
+      "supported_languages": ["Hindi", "English"],
+      "lid_supported_languages": ["Hindi", "English"],
+      "enable_language_identification": true,
+      "indic_language_style": "classic_colloquial_with_custom_code_mixed_words",
+      "numbers_in_indic": true
+    },
+    "speech_to_text_config": {
+      "asr_model_name": "saarika-v4",
+      "speech_hotwords": ["ShipGoods", "driver", "traffic", "location", "pickup", "gate", "lift", "Mallu", "Kanhaiya", "Suresh", "Ramesh", "Pappu", "Mahesh", "Dinesh", "Raju", "Mukesh", "Chhotu"]
+    },
+    "text_to_speech_config": {
+      "config_version": "2.0",
+      "internal_id": "<look up 'Shubh' (voice_id Viraj) with list_voices in the target workspace>",
+      "speech_settings": { "pace": 0.95 }
+    },
+    "interaction_config": {
+      "allow_interrupt_during_playback": false,
+      "max_interaction_time_seconds": 900,
+      "vad_config": {
+        "primary_vad": "basic-vad",
+        "speech_frame_config": { "silence_duration_frames": 9, "analysis_frame_size": 11, "volume_threshold": -35 }
+      },
+      "nudge_config": {
+        "enable_inactivity_nudge": true,
+        "end_interaction_after_consecutive_nudges": true,
+        "nudges": [
+          { "timeout_seconds": 6, "text": "Hello, can you hear me? This is ShipGoods, about your pickup." },
+          { "timeout_seconds": 10, "text": "I cannot hear you. Your driver is on the way, please keep your goods ready. I will end the call now." }
+        ]
+      }
+    },
+    "output_config": { "output_type": "audio", "background_sound": { "enabled": false } },
+    "intro_message_config": {
+      "audio": "Namaste, this is Shubh from ShipGoods. Your driver {{driverName}} will reach your pickup point in about {{etaMinutes}} minutes, vehicle number {{vehicleNo}}. Please keep your goods ready.",
+      "hindi": "नमस्ते, मैं शुभ, ShipGoods से बोल रहा हूँ। आपके ड्राइवर {{driverName}} लगभग {{etaMinutes}} मिनट में पिकअप पर पहुँच रहे हैं, गाड़ी नंबर {{vehicleNo}}। कृपया अपना सामान तैयार रखिए।"
+    },
+    "llm": {
+      "temperature": 0.5,
+      "agent_can_end_interaction": true,
+      "enable_voicemail_detection": true,
+      "fallback_message": "Sorry, I could not understand. Can you please repeat?"
+    },
+    "tool_runner_parameters": {
+      "handle_voicemail_tool": {
+        "voicemail_message": "Namaste, this is ShipGoods. Your driver will reach your pickup point in a few minutes. Please keep your goods ready and check the ShipGoods app for live updates."
+      },
+      "change_output_language": { "allowed_languages": ["Hindi", "English"] }
+    },
+    "agent_variables": {
+      "user_name": { "value": "", "description": "Customer name", "needs_initial_value": true },
+      "callId": { "value": "", "description": "ShipGoods VoiceCall id; sent to every tool so the server can find the booking", "needs_initial_value": true },
+      "bookingId": { "value": "", "description": "ShipGoods booking id for this pickup", "needs_initial_value": true },
+      "driverName": { "value": "", "description": "First name of the assigned driver", "needs_initial_value": true },
+      "vehicleNo": { "value": "", "description": "Number plate of the assigned vehicle, spaced (D L 1 C 1 2 3 4) so TTS reads it character by character", "needs_initial_value": true },
+      "etaMinutes": { "value": "", "description": "Minutes until the driver reaches pickup, when the call was placed", "needs_initial_value": true },
+      "call_summary": {
+        "value": "",
+        "update_post_interaction": true,
+        "post_interaction_prompt": "A short 1-2 line description of what happened on the call"
+      },
+      "call_outcome": {
+        "type": "enum",
+        "one_of": ["acknowledged", "coming_down", "needs_more_time", "needs_help", "wrong_person"],
+        "description": "How the customer responded, classified from the transcript afterwards",
+        "needs_initial_value": false,
+        "update_post_interaction": true,
+        "post_interaction_prompt": "From the whole conversation, classify the customer's response. acknowledged = the customer understood the driver is arriving and will be ready. coming_down = the customer said they are coming down now. needs_more_time = the customer asked for more time. needs_help = the customer needs help with the location or the pickup. wrong_person = the person who answered is not the customer who booked. If the customer never responded clearly or was not reached, leave it empty."
+      }
+    },
+    "evaluation_criteria": [
+      {
+        "name": "Call Goal",
+        "description": "The customer was told about the arriving driver and responded",
+        "rule": "call_outcome in [acknowledged, coming_down, needs_more_time, needs_help]"
+      }
+    ]
+  },
+  "core_tools": {
+    "enabled": ["end_interaction", "handle_voicemail", "change_output_language"],
+    "disabled": ["query_knowledge_base", "call_transfer"]
+  },
+  "tools": [
+    {
+      "name": "trip_info",
+      "description": "Live status of this pickup: driver's current ETA in minutes, arrival clock time, remaining distance, traffic level and delay, driver first name, vehicle number and type, booking status. Call it before stating any of these facts, every time they are asked, because the driver is moving.",
+      "url": "${API_BASE_URL}/api/voice/tools/trip-info",
+      "body": { "callId": { "type": "agent_variable", "value": { "variable_name": "callId" } } },
+      "resp_template": "Live trip data: booking status {{status}}. Driver {{driverFirstName}} reaches the {{headingTo}} in {{etaMinutes}} minutes, around {{arrivalTime}}, {{distanceMeters}} meters away. Traffic {{traffic}}, delay {{delayMinutes}} minutes. Vehicle {{vehicleType}}, number {{vehicleNumber}}. Ignore any value that is None or unknown.",
+      "on_failure": "Live trip details could not be fetched right now."
+    },
+    {
+      "name": "traffic_info",
+      "description": "Live traffic on the driver's road to the pickup from Google Maps: traffic level, current vs usual minutes, delay in minutes, arrival clock time, main road, and how much of the route is slow or jammed. Call it whenever the customer asks about traffic, jam, delay, why the driver is late, or exact arrival time.",
+      "url": "${API_BASE_URL}/api/voice/tools/traffic-info",
+      "body": { "callId": { "type": "agent_variable", "value": { "variable_name": "callId" } } },
+      "resp_template": "Live traffic data (live={{liveTraffic}}): traffic {{trafficCondition}}. Driver reaches {{headingTo}} in {{etaMinutes}} minutes, around {{arrivalTime}}; usually {{normalEtaMinutes}} minutes, so delay {{delayMinutes}} minutes. Main road {{via}}. Route slow {{slowPercent}} percent, jammed {{jamPercent}} percent. Ignore any value that is None or unknown.",
+      "on_failure": "Live traffic details could not be fetched right now."
+    },
+    {
+      "name": "driver_location",
+      "description": "Where the driver is right now: road and area name, a nearby landmark, distance and direction from the pickup, and whether the driver is approaching, stationary or moving away. Call it when the customer asks where the driver is, how far, which side, or whether the driver is moving.",
+      "url": "${API_BASE_URL}/api/voice/tools/driver-location",
+      "body": { "callId": { "type": "agent_variable", "value": { "variable_name": "callId" } } },
+      "resp_template": "Driver location now: road {{road}}, area {{area}}, near landmark {{nearLandmark}}. {{distanceMeters}} meters from the {{headingTo}}, towards the {{direction}} side. Movement {{movement}} (approaching, stationary or moving_away). Location updated {{updatedSecondsAgo}} seconds ago. Ignore any value that is None.",
+      "on_failure": "The driver's live location could not be fetched right now."
+    },
+    {
+      "name": "booking_details",
+      "description": "Details of this booking: status, pickup and drop address, fare in rupees, whether it is paid and how payment works, vehicle type, model and number, driver first name, scheduled time, and pickup-to-drop distance and travel time with current traffic. Call it for any question about price, fare, payment, drop location, vehicle type or size, schedule, or how long the delivery will take.",
+      "url": "${API_BASE_URL}/api/voice/tools/booking-details",
+      "body": { "callId": { "type": "agent_variable", "value": { "variable_name": "callId" } } },
+      "resp_template": "Booking details: status {{status}}. Pickup {{pickup}}. Drop {{drop}}. Fare {{fareRupees}} rupees, paid {{paid}}, payment {{paymentWhen}}. Vehicle type {{vehicleType}}, model {{vehicleModel}}, number {{vehicleNumber}}. Driver {{driverFirstName}}. Scheduled for {{scheduledFor}}. Pickup to drop {{tripDistanceKm}} km, about {{tripMinutesWithTraffic}} minutes with current traffic via {{tripVia}}. Ignore any value that is None.",
+      "on_failure": "Booking details could not be fetched right now."
+    },
+    {
+      "name": "pickup_policy",
+      "description": "Answer questions about ShipGoods pickup policy, such as how long the driver waits, what to keep ready, loading help, or safety, from the official FAQ.",
+      "url": "${API_BASE_URL}/api/voice/tools/pickup-policy",
+      "body": {
+        "callId": { "type": "agent_variable", "value": { "variable_name": "callId" } },
+        "question": { "type": "llm_prompt", "description": "The customer's policy question, in their own words", "param_type": "Text", "required": true }
+      },
+      "resp_template": "Policy answer: {{answer}}",
+      "on_failure": "Policy details are not available right now; the customer can check the ShipGoods app."
+    },
+    {
+      "name": "find_vehicle",
+      "description": "Helps a customer who is at the pickup point but cannot see the vehicle: returns the landmark next to the vehicle and its direction, or says the driver is still too far. Call it when the customer says they cannot find or see the vehicle.",
+      "url": "${API_BASE_URL}/api/voice/tools/find-vehicle",
+      "body": {
+        "callId": { "type": "agent_variable", "value": { "variable_name": "callId" } },
+        "description": { "type": "llm_prompt", "description": "What the customer says they can see around them, in their own words, e.g. medical store, temple, petrol pump. Empty if they said nothing.", "param_type": "Text", "required": false }
+      },
+      "resp_template": "{{say}}",
+      "on_failure": "The vehicle's exact spot could not be found right now."
+    },
+    {
+      "name": "pickup_note",
+      "description": "Sends the customer's exact pickup instructions to the driver's app, such as gate number, floor, landmark, lift not working, heavy items, or where they are standing. Call it whenever the customer gives such an instruction for the driver.",
+      "url": "${API_BASE_URL}/api/voice/tools/pickup-note",
+      "body": {
+        "callId": { "type": "agent_variable", "value": { "variable_name": "callId" } },
+        "note": { "type": "llm_prompt", "description": "The customer's instruction for the driver, short and in their own words, e.g. Gate number 2, third floor, lift nahi hai.", "param_type": "Text", "required": true }
+      },
+      "resp_template": "The note has been sent to the driver.",
+      "on_failure": "The note could not be sent to the driver right now."
+    },
+    {
+      "name": "notify_driver",
+      "description": "Send a fixed alert to the driver's app for this pickup: coming_down, need_five_minutes, need_help (cannot find the driver), call_me (customer wants the driver to call them), urgent (customer says it is urgent or an emergency).",
+      "url": "${API_BASE_URL}/api/voice/tools/notify-driver",
+      "body": {
+        "callId": { "type": "agent_variable", "value": { "variable_name": "callId" } },
+        "message": {
+          "type": "llm_prompt",
+          "description": "coming_down if the customer is coming down now; need_five_minutes if they need more time; need_help if they cannot find the driver or need help; call_me if they want the driver to call them; urgent if they say it is urgent or an emergency",
+          "param_type": "One of a list",
+          "enum": ["coming_down", "need_five_minutes", "need_help", "call_me", "urgent"],
+          "required": true
+        }
+      },
+      "resp_template": "The driver has been notified.",
+      "on_failure": "The driver could not be notified right now."
+    }
+  ],
+  "tool_defaults": {
+    "method": "POST",
+    "lifecycle": "run",
+    "timeout_seconds": 15,
+    "headers": { "X-ShipGoods-Tool-Secret": "${SARVAM_TOOL_SECRET}" }
+  }
+}
