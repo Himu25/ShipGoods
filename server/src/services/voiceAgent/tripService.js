@@ -231,13 +231,16 @@ export async function getDriverWhereabouts(booking, redis) {
   const loc = await liveDriverLocation(booking.driverId._id, redis);
   const [place, landmarks] = await Promise.all([
     reverseGeocodeArea(loc.latitude, loc.longitude),
-    fetchNearbyLandmarks(loc.latitude, loc.longitude, 1),
+    fetchNearbyLandmarks(loc.latitude, loc.longitude, 4),
   ]);
+  // Distinct names only (the Places list can repeat one complex).
+  const names = [...new Set(landmarks.map((l) => l.name))];
   return {
     available: true,
     road: place?.road || null,
     area: place?.area || null,
-    nearLandmark: landmarks[0]?.name || null,
+    nearLandmark: names[0] || null,
+    otherLandmarks: names.slice(1, 4).join(", ") || null,
     distanceMeters: where.distanceMeters,
     direction: where.direction,
     movement: where.movement,

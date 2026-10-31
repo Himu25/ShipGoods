@@ -17,7 +17,7 @@ import {
 } from "../services/voiceAgent/tripService.js";
 import { answerPickupPolicy } from "../services/sarvam/pickupPolicy.js";
 import { placeTestPickupCall, testCallBlocker } from "../services/voice/testPickupCall.js";
-import { spokenDistance, spokenPlate } from "../services/voice/spokenHindi.js";
+import { spokenDistance, spokenPlate, spokenSpeed } from "../services/voice/spokenHindi.js";
 
 const router = express.Router();
 
@@ -110,6 +110,11 @@ router.post(
       arrivalTime: eta.available ? eta.arrivalTime : null,
       distanceMeters: eta.available ? eta.remainingMeters : null,
       distanceSpoken: eta.available ? spokenDistance(eta.remainingMeters) : null,
+      // Average for the rest of the route (live distance over live ETA), so
+      // "kitni speed se aa raha hai?" gets a real answer.
+      averageSpeedSpoken: eta.available
+        ? spokenSpeed(eta.remainingMeters / 1000 / (eta.etaMinutes / 60))
+        : null,
       traffic: eta.available ? eta.trafficCondition : "unknown",
       delayMinutes: eta.available ? eta.delayMinutes : null,
       driverFirstName: driver.available ? driver.driverFirstName : null,

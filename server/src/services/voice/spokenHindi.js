@@ -56,6 +56,12 @@ export function spokenPlate(plate) {
   return `${head}, ${spokenDigits(number)}`;
 }
 
+/** "लगभग अठारह किलोमीटर प्रति घंटा"; null when it can't be known. */
+export function spokenSpeed(kmph) {
+  if (!Number.isFinite(kmph) || kmph <= 0) return null;
+  return `लगभग ${hindiNumber(Math.max(1, Math.round(kmph)))} किलोमीटर प्रति घंटा`;
+}
+
 /**
  * Distance as people say it, rounded: "सौ मीटर से कम", "आठ सौ मीटर",
  * "सवा किलोमीटर", "डेढ़ किलोमीटर", "पौने तीन किलोमीटर", "चार किलोमीटर".
