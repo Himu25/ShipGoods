@@ -178,7 +178,7 @@
   "tools": [
     {
       "name": "trip_info",
-      "description": "Live status of this pickup: driver's current ETA in minutes, arrival clock time, remaining distance, traffic level and delay, driver first name, vehicle number and type, booking status. Call it before stating any of these facts, every time they are asked, because the driver is moving.",
+      "description": "Live status of this pickup: driver's current ETA in minutes, arrival clock time, remaining distance, average speed for the rest of the route, traffic level and delay, driver first name, vehicle number and type, booking status. Call it before stating any of these facts, every time they are asked, because the driver is moving.",
       "url": "${API_BASE_URL}/api/voice/tools/trip-info",
       "body": {
         "callId": {
@@ -188,7 +188,7 @@
           }
         }
       },
-      "resp_template": "Live trip data: booking status {{status}}. Driver {{driverFirstName}} reaches the {{headingTo}} in {{etaMinutes}} minutes, around {{arrivalTime}}. Distance to say: {{distanceSpoken}}. Traffic {{traffic}}, delay {{delayMinutes}} minutes. Vehicle {{vehicleType}}; vehicle number to say exactly: {{vehicleNumberSpoken}}. Ignore any value that is None or unknown.",
+      "resp_template": "Live trip data: booking status {{status}}. Driver {{driverFirstName}} reaches the {{headingTo}} in {{etaMinutes}} minutes, around {{arrivalTime}}. Distance to say: {{distanceSpoken}}. Average speed to say (for the rest of the route, from live distance and arrival time): {{averageSpeedSpoken}}. Traffic {{traffic}}, delay {{delayMinutes}} minutes. Vehicle {{vehicleType}}; vehicle number to say exactly: {{vehicleNumberSpoken}}. Ignore any value that is None or unknown.",
       "on_failure": "Live trip details could not be fetched right now."
     },
     {
@@ -208,7 +208,7 @@
     },
     {
       "name": "driver_location",
-      "description": "Where the driver is right now: road and area name, a nearby landmark, distance and direction from the pickup, and whether the driver is approaching, stationary or moving away. Call it when the customer asks where the driver is, how far, which side, or whether the driver is moving.",
+      "description": "Where the driver is right now: road and area name, the nearest landmark and other landmarks around it, distance and direction from the pickup, and whether the driver is approaching, stationary or moving away. Call it when the customer asks where the driver is, what is near the driver, how far, which side, or whether the driver is moving.",
       "url": "${API_BASE_URL}/api/voice/tools/driver-location",
       "body": {
         "callId": {
@@ -218,7 +218,7 @@
           }
         }
       },
-      "resp_template": "Driver location now: road {{road}}, area {{area}}, near landmark {{nearLandmark}}. Distance to say: {{distanceSpoken}} from the {{headingTo}}, towards the {{direction}} side. Movement {{movement}} (approaching, stationary or moving_away). Ignore any value that is None.",
+      "resp_template": "Driver location now: road {{road}}, area {{area}}, nearest landmark {{nearLandmark}}; other places around it: {{otherLandmarks}}. Distance to say: {{distanceSpoken}} from the {{headingTo}}, towards the {{direction}} side. Movement {{movement}} (approaching, stationary or moving_away). Ignore any value that is None.",
       "on_failure": "The driver's live location could not be fetched right now."
     },
     {
