@@ -24,6 +24,9 @@ This call cannot cancel the booking or change the pickup or drop address. For ch
 ## Loading help
 Please keep the goods packed and ready near the pickup point. For heavy or many items, tell us on this call and the agent will inform the driver; arrange someone to help load if possible.
 
+## Weight and vehicle size
+How much fits depends on the vehicle type of the booking. As a rough guide: a motorcycle carries small parcels up to about 20 kg; a car carries boxes and bags up to about 200 kg; a mini truck such as a Tata Ace carries up to about 750 kg; a bus is for bulk goods. The vehicle type and model of this booking come from the booking details. For anything bigger, book a larger vehicle in the app.
+
 ## What can be shipped
 Household goods, parcels, furniture and similar items. Do not send cash, jewellery, illegal items, or anything flammable or dangerous.
 

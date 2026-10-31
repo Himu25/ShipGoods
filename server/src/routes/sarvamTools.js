@@ -25,6 +25,7 @@ const DRIVER_MESSAGES = {
   need_five_minutes: "Customer needs about 5 more minutes.",
   need_help: "Customer needs help finding you at pickup.",
   call_me: "Customer asked you to call them.",
+  urgent: "Customer says it is urgent — please come as quickly as you safely can.",
 };
 
 function secretMatches(provided) {
