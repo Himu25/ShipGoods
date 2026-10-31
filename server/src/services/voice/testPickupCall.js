@@ -22,7 +22,7 @@ import {
 } from "../sarvam/outbound.js";
 import { spokenPlate } from "./spokenHindi.js";
 import { botName } from "../demo/demoFleet.js";
-import { estimateRoute } from "../voiceAgent/tripService.js";
+import { estimateRoute, getDestinationETA } from "../voiceAgent/tripService.js";
 import { startPickupCall } from "./arrivalDetector.js";
 
 const OSRM = "https://router.project-osrm.org/route/v1/driving";
@@ -214,6 +214,32 @@ async function createUndialledCall({ booking, customer, driver, vehicle, etaMinu
     etaMinutes: String(etaMinutes),
   };
   return { call, variables };
+}
+
+/**
+ * Undialled test call for a real, already-accepted booking (e.g. one a
+ * customer just made in the app, with the demo bot driving to it), so a
+ * Sarvam verified-number test call can talk about that exact trip while
+ * the dashboard tracks it. Resolves to { booking, call, variables }.
+ */
+export async function attachTestCallToBooking({ redis, bookingId }) {
+  const booking = await Booking.findById(bookingId).populate("driverId").populate("vehicleId");
+  if (!booking) throw new Error("booking_not_found");
+  if (!["accepted", "arrived"].includes(booking.status)) {
+    throw new Error(`booking_not_active (status ${booking.status})`);
+  }
+  if (!booking.driverId || !booking.vehicleId) throw new Error("booking_has_no_driver_or_vehicle");
+
+  const eta = await getDestinationETA(booking, redis);
+  const { call, variables } = await createUndialledCall({
+    booking,
+    customer: { _id: booking.userId },
+    driver: booking.driverId,
+    vehicle: booking.vehicleId,
+    etaMinutes: eta.available ? eta.etaMinutes : 5,
+    distanceM: eta.available ? eta.remainingMeters : null,
+  });
+  return { booking, call, variables };
 }
 
 /**

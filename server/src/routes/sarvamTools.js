@@ -16,7 +16,11 @@ import {
   getVehicleDetails,
 } from "../services/voiceAgent/tripService.js";
 import { answerPickupPolicy } from "../services/sarvam/pickupPolicy.js";
-import { placeTestPickupCall, testCallBlocker } from "../services/voice/testPickupCall.js";
+import {
+  attachTestCallToBooking,
+  placeTestPickupCall,
+  testCallBlocker,
+} from "../services/voice/testPickupCall.js";
 import { spokenDistance, spokenPlate, spokenSpeed } from "../services/voice/spokenHindi.js";
 
 const router = express.Router();
@@ -268,6 +272,23 @@ router.post(
       return res.status(429).json({ error: "too_soon", retryAfterSeconds: Math.ceil(waitMs / 1000) });
     }
     lastTestCallAt = Date.now();
+
+    // An existing booking (dial:false only): talk about that real trip.
+    const existingId = req.body?.bookingId;
+    if (!dial && existingId) {
+      if (!mongoose.isValidObjectId(existingId)) {
+        return res.status(400).json({ error: "invalid_booking_id" });
+      }
+      try {
+        const { booking, call, variables } = await attachTestCallToBooking({
+          redis: getRedisClient(),
+          bookingId: existingId,
+        });
+        return res.json({ placed: false, callId: String(call._id), bookingId: String(booking._id), agentVariables: variables });
+      } catch (err) {
+        return res.status(409).json({ error: err.message });
+      }
+    }
 
     const { booking, call, variables } = await placeTestPickupCall({
       io: getIO(),
