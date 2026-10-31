@@ -36,12 +36,6 @@ export function normalizePhone(raw) {
   return null;
 }
 
-/** "DL1C1234" -> "D L 1 C 1 2 3 4": spaced characters are spoken one by
- * one by Sarvam's TTS instead of being grouped into "one two, three four". */
-export function spokenPlate(plate) {
-  return String(plate || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().split("").join(" ");
-}
-
 /** Numbers verified for calling (VOICE_ALLOWED_NUMBERS, comma-separated),
  * or null when unset. */
 export function allowedNumbers() {

@@ -17,6 +17,7 @@ import {
 } from "../services/voiceAgent/tripService.js";
 import { answerPickupPolicy } from "../services/sarvam/pickupPolicy.js";
 import { placeTestPickupCall, testCallBlocker } from "../services/voice/testPickupCall.js";
+import { spokenDistance, spokenPlate } from "../services/voice/spokenHindi.js";
 
 const router = express.Router();
 
@@ -108,10 +109,12 @@ router.post(
       etaMinutes: eta.available ? eta.etaMinutes : null,
       arrivalTime: eta.available ? eta.arrivalTime : null,
       distanceMeters: eta.available ? eta.remainingMeters : null,
+      distanceSpoken: eta.available ? spokenDistance(eta.remainingMeters) : null,
       traffic: eta.available ? eta.trafficCondition : "unknown",
       delayMinutes: eta.available ? eta.delayMinutes : null,
       driverFirstName: driver.available ? driver.driverFirstName : null,
       vehicleNumber: vehicle.available ? vehicle.numberPlate : null,
+      vehicleNumberSpoken: vehicle.available ? spokenPlate(vehicle.numberPlate) : null,
       vehicleType: vehicle.available ? vehicle.model || vehicle.vehicleType : null,
     };
     recordToolCall(voiceCall, "trip-info", {}, result);
@@ -163,7 +166,8 @@ router.post(
 router.post(
   "/voice/tools/driver-location",
   wrap(async (req, res) => {
-    const result = await getDriverWhereabouts(req.booking, getRedisClient());
+    const where = await getDriverWhereabouts(req.booking, getRedisClient());
+    const result = where.available ? { ...where, distanceSpoken: spokenDistance(where.distanceMeters) } : where;
     recordToolCall(req.voiceCall, "driver-location", {}, result, result.available);
     res.json(result);
   })
@@ -172,7 +176,12 @@ router.post(
 router.post(
   "/voice/tools/booking-details",
   wrap(async (req, res) => {
-    const result = await getBookingDetails(req.booking);
+    const details = await getBookingDetails(req.booking);
+    const result = {
+      ...details,
+      vehicleNumberSpoken: spokenPlate(details.vehicleNumber),
+      tripDistanceSpoken: Number.isFinite(details.tripDistanceKm) ? spokenDistance(details.tripDistanceKm * 1000) : null,
+    };
     recordToolCall(req.voiceCall, "booking-details", {}, result);
     res.json(result);
   })

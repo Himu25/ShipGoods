@@ -19,8 +19,8 @@ import {
   isSarvamConfigured,
   missingSarvamConfig,
   normalizePhone,
-  spokenPlate,
 } from "../sarvam/outbound.js";
+import { spokenPlate } from "./spokenHindi.js";
 import { botName } from "../demo/demoFleet.js";
 import { estimateRoute } from "../voiceAgent/tripService.js";
 import { startPickupCall } from "./arrivalDetector.js";

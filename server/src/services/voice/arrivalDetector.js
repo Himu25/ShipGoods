@@ -5,7 +5,8 @@ import { haversineMeters, pickupLatLng } from "./geo.js";
 import { firstName } from "./guardrails.js";
 import { estimateRoute } from "../voiceAgent/tripService.js";
 import { ETA_GREETING_HI } from "../voiceAgent/guardrails.js";
-import { dialNumberFor, isSarvamConfigured, placeOutboundCall, spokenPlate } from "../sarvam/outbound.js";
+import { dialNumberFor, isSarvamConfigured, placeOutboundCall } from "../sarvam/outbound.js";
+import { spokenPlate } from "./spokenHindi.js";
 
 export const ARRIVE_METERS = 30;
 // Only ask a routing API for an ETA once the driver is plausibly within
