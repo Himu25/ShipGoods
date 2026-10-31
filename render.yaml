@@ -30,6 +30,13 @@ services:
         sync: false
       - key: VOICE_CALLS_ENABLED
         value: "false"
+      # Live traffic, ETA, area names and landmarks for the pickup call
+      # (Routes, Geocoding and Places APIs); without it ETA uses OSRM.
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      # Numbers verified (OTP) in Sarvam; those customers are called directly.
+      - key: VOICE_ALLOWED_NUMBERS
+        sync: false
       # Showcase: 5 nearby drivers per area + a bot that accepts each
       # customer's booking and drives to the pickup.
       - key: DEMO_MODE

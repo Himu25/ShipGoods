@@ -7,8 +7,12 @@ import getRedisClient from "../redisClient.js";
 import { getIO } from "../services/socketService.js";
 import { handleSarvamCallEnded } from "../services/voice/arrivalDetector.js";
 import {
+  findCarLandmark,
+  getBookingDetails,
   getDestinationETA,
   getDriverDetails,
+  getDriverWhereabouts,
+  getTrafficInfo,
   getVehicleDetails,
 } from "../services/voiceAgent/tripService.js";
 import { answerPickupPolicy } from "../services/sarvam/pickupPolicy.js";
@@ -20,6 +24,7 @@ const DRIVER_MESSAGES = {
   coming_down: "Customer is coming down with the goods.",
   need_five_minutes: "Customer needs about 5 more minutes.",
   need_help: "Customer needs help finding you at pickup.",
+  call_me: "Customer asked you to call them.",
 };
 
 function secretMatches(provided) {
@@ -98,9 +103,12 @@ router.post(
     // Never includes the customer's phone or anything beyond this booking.
     const result = {
       status: booking.status,
+      headingTo: eta.available ? eta.headingTo : null,
       etaMinutes: eta.available ? eta.etaMinutes : null,
+      arrivalTime: eta.available ? eta.arrivalTime : null,
       distanceMeters: eta.available ? eta.remainingMeters : null,
       traffic: eta.available ? eta.trafficCondition : "unknown",
+      delayMinutes: eta.available ? eta.delayMinutes : null,
       driverFirstName: driver.available ? driver.driverFirstName : null,
       vehicleNumber: vehicle.available ? vehicle.numberPlate : null,
       vehicleType: vehicle.available ? vehicle.model || vehicle.vehicleType : null,
@@ -138,6 +146,72 @@ router.post(
       await VoiceCall.updateOne({ _id: voiceCall._id }, { $set: { acknowledged: true } });
     }
     recordToolCall(voiceCall, "notify-driver", { message: messageKey }, { ok: true });
+    res.json({ ok: true });
+  })
+);
+
+router.post(
+  "/voice/tools/traffic-info",
+  wrap(async (req, res) => {
+    const result = await getTrafficInfo(req.booking, getRedisClient());
+    recordToolCall(req.voiceCall, "traffic-info", {}, result, result.available);
+    res.json(result);
+  })
+);
+
+router.post(
+  "/voice/tools/driver-location",
+  wrap(async (req, res) => {
+    const result = await getDriverWhereabouts(req.booking, getRedisClient());
+    recordToolCall(req.voiceCall, "driver-location", {}, result, result.available);
+    res.json(result);
+  })
+);
+
+router.post(
+  "/voice/tools/booking-details",
+  wrap(async (req, res) => {
+    const result = await getBookingDetails(req.booking);
+    recordToolCall(req.voiceCall, "booking-details", {}, result);
+    res.json(result);
+  })
+);
+
+router.post(
+  "/voice/tools/find-vehicle",
+  wrap(async (req, res) => {
+    const userDescription = String(req.body?.description || "").slice(0, 300);
+    const result = await findCarLandmark(req.booking, getRedisClient(), String(req.voiceCall._id), getIO(), {
+      userDescription,
+      forceEscalate: req.body?.unsafe === true || req.body?.unsafe === "true",
+    });
+    // One spoken line for the agent, whichever branch findCarLandmark took.
+    const say = result.message
+      || (result.landmark
+        ? `Gaadi ${result.landmark} ke paas hai, aapse lagbhag ${result.distanceMeters} meter${result.direction ? `, ${result.direction} ki taraf` : ""}.`
+        : "Gaadi ki exact jagah abhi nahi mil rahi.");
+    recordToolCall(req.voiceCall, "find-vehicle", { userDescription }, result, result.available !== false);
+    res.json({ ...result, say });
+  })
+);
+
+router.post(
+  "/voice/tools/pickup-note",
+  wrap(async (req, res) => {
+    const { booking, voiceCall } = req;
+    const note = String(req.body?.note || "").trim().slice(0, 300);
+    if (!note) {
+      recordToolCall(voiceCall, "pickup-note", { note }, { error: "empty_note" }, false);
+      return res.status(400).json({ ok: false, error: "empty_note" });
+    }
+    // Word for word, so the driver sees exactly what the customer said
+    // (gate number, floor, landmark, "lift nahi hai", ...).
+    getIO()?.to(`driver:${booking.driverId._id}`).emit("userPickupUpdate", {
+      bookingId: String(booking._id),
+      messageKey: "pickup_note",
+      text: `Customer: "${note}"`,
+    });
+    recordToolCall(voiceCall, "pickup-note", { note }, { ok: true });
     res.json({ ok: true });
   })
 );

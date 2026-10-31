@@ -1,6 +1,6 @@
 import Booking from "../../models/Booking.js";
 import { haversineMeters, bearingDegrees, cardinalDirectionHi, pickupLatLng, destnLatLng } from "../voice/geo.js";
-import { fetchGoogleTrafficRoute, fetchNearbyLandmarks } from "./googleMaps.js";
+import { fetchGoogleTrafficRoute, fetchNearbyLandmarks, reverseGeocodeArea } from "./googleMaps.js";
 import {
   DRIVER_CALLBACK_MESSAGE,
   SAFETY_CALLBACK_MESSAGE,
@@ -133,10 +133,19 @@ export async function getDriverLocation(booking, redis) {
 export async function estimateRoute(fromLat, fromLng, toLat, toLng) {
   const google = await fetchGoogleTrafficRoute(fromLat, fromLng, toLat, toLng);
   if (google) {
+    const etaMinutes = Math.max(1, Math.round(google.durationSeconds / 60));
+    const normalEtaMinutes = google.staticDurationSeconds
+      ? Math.max(1, Math.round(google.staticDurationSeconds / 60))
+      : null;
     return {
       distanceMeters: Math.round(google.distanceMeters),
-      etaMinutes: Math.max(1, Math.round(google.durationSeconds / 60)),
+      etaMinutes,
+      normalEtaMinutes,
+      delayMinutes: normalEtaMinutes ? Math.max(0, etaMinutes - normalEtaMinutes) : null,
       trafficCondition: google.trafficCondition,
+      via: google.via,
+      congestion: google.congestion,
+      liveTraffic: true,
       note: "Live traffic-aware estimate (Google Routes).",
     };
   }
@@ -146,9 +155,24 @@ export async function estimateRoute(fromLat, fromLng, toLat, toLng) {
   return {
     distanceMeters: Math.round(route.distanceMeters),
     etaMinutes: Math.max(1, Math.round(route.durationSeconds / 60)),
+    normalEtaMinutes: null,
+    delayMinutes: null,
     trafficCondition: "unknown",
+    via: null,
+    congestion: null,
+    liveTraffic: false,
     note: "Estimate from distance and typical road speeds — not live traffic (traffic-aware source unavailable).",
   };
+}
+
+/** "3:42 pm" in India time, `minutes` from now. */
+export function clockInMinutes(minutes) {
+  return new Date(Date.now() + minutes * 60000).toLocaleTimeString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 export async function getDestinationETA(booking, redis) {
@@ -164,9 +188,95 @@ export async function getDestinationETA(booking, redis) {
     available: true,
     remainingMeters: route.distanceMeters,
     etaMinutes: route.etaMinutes,
+    arrivalTime: clockInMinutes(route.etaMinutes),
+    normalEtaMinutes: route.normalEtaMinutes,
+    delayMinutes: route.delayMinutes,
     trafficCondition: route.trafficCondition,
+    via: route.via,
+    congestion: route.congestion,
+    liveTraffic: route.liveTraffic,
     headingTo: booking.status === "collected" ? "destination" : "pickup",
     note: route.note,
+  };
+}
+
+/** Why the trip is (or isn't) slow: live traffic on the driver's road to
+ * the current target, compared with the usual time for that road. */
+export async function getTrafficInfo(booking, redis) {
+  const eta = await getDestinationETA(booking, redis);
+  if (!eta.available) return { available: false };
+  const jam = eta.congestion?.jamPercent ?? null;
+  const slow = eta.congestion?.slowPercent ?? null;
+  return {
+    available: true,
+    liveTraffic: eta.liveTraffic,
+    trafficCondition: eta.trafficCondition,
+    etaMinutes: eta.etaMinutes,
+    normalEtaMinutes: eta.normalEtaMinutes,
+    delayMinutes: eta.delayMinutes,
+    arrivalTime: eta.arrivalTime,
+    via: eta.via,
+    jamPercent: jam,
+    slowPercent: slow,
+    headingTo: eta.headingTo,
+  };
+}
+
+/** Where the driver is right now, in words a customer recognises: road,
+ * area, a nearby landmark, how far and which side of the target, and
+ * whether they are closing in, parked or moving away. */
+export async function getDriverWhereabouts(booking, redis) {
+  const where = await getDriverLocation(booking, redis);
+  if (!where.available) return { available: false };
+  const loc = await liveDriverLocation(booking.driverId._id, redis);
+  const [place, landmarks] = await Promise.all([
+    reverseGeocodeArea(loc.latitude, loc.longitude),
+    fetchNearbyLandmarks(loc.latitude, loc.longitude, 1),
+  ]);
+  return {
+    available: true,
+    road: place?.road || null,
+    area: place?.area || null,
+    nearLandmark: landmarks[0]?.name || null,
+    distanceMeters: where.distanceMeters,
+    direction: where.direction,
+    movement: where.movement,
+    updatedSecondsAgo: where.ageSeconds,
+    headingTo: where.headingTo,
+  };
+}
+
+/** Everything about this booking a customer may ask on the call. The
+ * customer's phone and other people's data are never included. */
+export async function getBookingDetails(booking) {
+  const pickup = pickupLatLng(booking.src);
+  const drop = destnLatLng(booking.destn);
+  const trip = pickup && drop ? await estimateRoute(pickup.lat, pickup.lng, drop.lat, drop.lng) : null;
+  const vehicle = getVehicleDetails(booking);
+  return {
+    status: booking.status,
+    pickup: booking.srcText || null,
+    drop: booking.destnText || null,
+    fareRupees: Number.isFinite(booking.price) ? Math.round(booking.price) : null,
+    paid: Boolean(booking.paymentId),
+    paymentWhen: "after delivery, by card in the ShipGoods app",
+    vehicleType: vehicle.available ? vehicle.vehicleType : null,
+    vehicleModel: vehicle.available ? vehicle.model : null,
+    vehicleNumber: vehicle.available ? vehicle.numberPlate : null,
+    driverFirstName: getDriverDetails(booking).driverFirstName || null,
+    scheduledFor: booking.isScheduled && booking.scheduledTime
+      ? new Date(booking.scheduledTime).toLocaleString("en-IN", {
+          timeZone: "Asia/Kolkata",
+          day: "numeric",
+          month: "short",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        })
+      : null,
+    tripDistanceKm: trip ? Math.round(trip.distanceMeters / 100) / 10 : null,
+    tripMinutesWithTraffic: trip?.etaMinutes ?? null,
+    tripVia: trip?.via ?? null,
   };
 }
 

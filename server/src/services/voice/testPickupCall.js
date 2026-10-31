@@ -21,6 +21,7 @@ import {
   normalizePhone,
 } from "../sarvam/outbound.js";
 import { botName } from "../demo/demoFleet.js";
+import { estimateRoute } from "../voiceAgent/tripService.js";
 import { startPickupCall } from "./arrivalDetector.js";
 
 const OSRM = "https://router.project-osrm.org/route/v1/driving";
@@ -185,7 +186,7 @@ export function testCallBlocker(phone, { dial = true } = {}) {
  * telephony connection needed). No end-of-call webhook comes back for
  * such a call, so it closes itself and the tools stop accepting it.
  */
-async function createUndialledCall({ booking, customer, driver, vehicle }) {
+async function createUndialledCall({ booking, customer, driver, vehicle, etaMinutes, distanceM }) {
   const call = await VoiceCall.create({
     bookingId: booking._id,
     userId: customer._id,
@@ -193,8 +194,8 @@ async function createUndialledCall({ booking, customer, driver, vehicle }) {
     status: "ringing",
     channel: "sarvam",
     callType: "pickup",
-    triggerDistanceM: 1500,
-    triggerEtaMinutes: 5,
+    triggerDistanceM: distanceM,
+    triggerEtaMinutes: etaMinutes,
     retryCount: 0,
   });
   setTimeout(() => {
@@ -209,7 +210,7 @@ async function createUndialledCall({ booking, customer, driver, vehicle }) {
     bookingId: String(booking._id),
     driverName: driver.name.split(" ")[0],
     vehicleNo: vehicle.numberPlate,
-    etaMinutes: "5",
+    etaMinutes: String(etaMinutes),
   };
   return { call, variables };
 }
@@ -248,9 +249,15 @@ export async function placeTestPickupCall({ io = null, redis, phone, drive = tru
   });
 
   await writeLocation(redis, driver._id, DRIVER_AT, 0);
+  // The greeting quotes the same live-traffic ETA the tools will report.
+  const route = await estimateRoute(DRIVER_AT.lat, DRIVER_AT.lng, PICKUP.lat, PICKUP.lng);
+  const etaMinutes = route?.etaMinutes ?? 5;
+  const distanceM = route?.distanceMeters ?? 1500;
 
   if (!dial) {
-    const { call, variables } = await createUndialledCall({ booking, customer, driver, vehicle });
+    const { call, variables } = await createUndialledCall({
+      booking, customer, driver, vehicle, etaMinutes, distanceM,
+    });
     if (drive) await driveTowardsPickup(redis, driver._id);
     return { booking, call, variables };
   }
@@ -261,8 +268,8 @@ export async function placeTestPickupCall({ io = null, redis, phone, drive = tru
     bookingId: booking._id,
     userId: customer._id,
     driverId: driver._id,
-    distanceM: 1500,
-    etaMinutes: 5,
+    distanceM,
+    etaMinutes,
   });
 
   if (drive && call?.channel === "sarvam") await driveTowardsPickup(redis, driver._id);
